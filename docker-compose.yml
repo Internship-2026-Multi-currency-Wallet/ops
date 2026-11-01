@@ -3,8 +3,19 @@
 # Expects all repositories cloned side by side:
 #   wallet-core/  rates-service/  treasury-service/  client-web/  back-office/  ops/
 #
-#   cp .env.example .env      # optional, defaults work out of the box
-#   docker compose up --build
+# Use ./dev.sh instead of calling docker compose directly:
+#   ./dev.sh up                        # infrastructure only: MySQL + Redis
+#   ./dev.sh up rates-service          # infrastructure + rates-service in a container
+#   ./dev.sh up all                    # everything
+#
+# Infrastructure (mysql, redis) has no profile and always starts. Every application service is opt-in:
+# it has a profile named after itself plus the profile "all".
+#
+# Networking:
+#   - containers reach the infrastructure by service name (mysql:3306, redis:6379);
+#   - containers reach the other backends via host.docker.internal:<host port>, which works both when the
+#     other backend runs in a container (published port) and when it runs on the host (npm run start:dev);
+#   - services running on the host reach everything via localhost:<host port>.
 #
 # PayGate is not part of this stack: it is an external sandbox (see README).
 
@@ -18,13 +29,25 @@ x-backend-env: &backend-env
   CLIENT: ${CLIENT:-demo}
   DEV_AUTH: ${DEV_AUTH:-true}
   CORS_ORIGINS: http://localhost:${CLIENT_WEB_PORT:-8080},http://localhost:${BACK_OFFICE_PORT:-8081},http://localhost:5173,http://localhost:5174
+  # Base URLs of the other backends (container or host process alike, see the header).
+  WALLET_CORE_URL: http://host.docker.internal:${WALLET_CORE_PORT:-3000}
+  RATES_SERVICE_URL: http://host.docker.internal:${RATES_SERVICE_PORT:-3001}
+  TREASURY_SERVICE_URL: http://host.docker.internal:${TREASURY_SERVICE_PORT:-3002}
 
-x-backend-healthcheck: &backend-healthcheck
-  test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/health']
-  interval: 5s
-  timeout: 3s
-  retries: 20
-  start_period: 10s
+# Common settings of the three backends.
+x-backend: &backend
+  # host.docker.internal is built into Docker Desktop and Colima; this mapping adds it on Linux.
+  extra_hosts:
+    - 'host.docker.internal:host-gateway'
+  depends_on:
+    mysql: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  healthcheck:
+    test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/health']
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 10s
 
 services:
   mysql:
@@ -58,6 +81,8 @@ services:
       retries: 20
 
   wallet-core:
+    <<: *backend
+    profiles: [wallet-core, all]
     build: ../wallet-core
     # Apply pending migrations, then start the service.
     command: sh -c "npm run migrate && node dist/main.js"
@@ -67,12 +92,10 @@ services:
       DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/wallet_core
     ports:
       - '${WALLET_CORE_PORT:-3000}:3000'
-    depends_on:
-      mysql: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    healthcheck: *backend-healthcheck
 
   rates-service:
+    <<: *backend
+    profiles: [rates-service, all]
     build: ../rates-service
     command: sh -c "npm run migrate && node dist/main.js"
     environment:
@@ -81,12 +104,10 @@ services:
       DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/rates_service
     ports:
       - '${RATES_SERVICE_PORT:-3001}:3000'
-    depends_on:
-      mysql: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    healthcheck: *backend-healthcheck
 
   treasury-service:
+    <<: *backend
+    profiles: [treasury-service, all]
     build: ../treasury-service
     command: sh -c "npm run migrate && node dist/main.js"
     environment:
@@ -96,12 +117,9 @@ services:
       DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/treasury_service
     ports:
       - '${TREASURY_SERVICE_PORT:-3002}:3000'
-    depends_on:
-      mysql: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    healthcheck: *backend-healthcheck
 
   client-web:
+    profiles: [client-web, all]
     build:
       context: ../client-web
       args:
@@ -112,11 +130,9 @@ services:
         VITE_CLIENT: ${CLIENT:-demo}
         VITE_DEV_USER: ${CLIENT_WEB_DEV_USER:-1:wallet}
         VITE_USE_MOCKS: 'false'
+    # No depends_on: the browser calls the backends on localhost, wherever they run.
     ports:
       - '${CLIENT_WEB_PORT:-8080}:8080'
-    depends_on:
-      wallet-core: { condition: service_healthy }
-      rates-service: { condition: service_healthy }
     healthcheck:
       test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/']
       interval: 10s
@@ -124,19 +140,20 @@ services:
       retries: 10
 
   back-office:
+    profiles: [back-office, all]
     build:
       context: ../back-office
       args:
         VITE_WALLET_CORE_URL: http://localhost:${WALLET_CORE_PORT:-3000}/graphql
         VITE_RATES_SERVICE_URL: http://localhost:${RATES_SERVICE_PORT:-3001}/graphql
+        VITE_RATES_SERVICE_WS_URL: ws://localhost:${RATES_SERVICE_PORT:-3001}/graphql
         VITE_TREASURY_SERVICE_URL: http://localhost:${TREASURY_SERVICE_PORT:-3002}/graphql
+        VITE_TREASURY_SERVICE_WS_URL: ws://localhost:${TREASURY_SERVICE_PORT:-3002}/graphql
         VITE_CLIENT: ${CLIENT:-demo}
         VITE_DEV_USER: ${BACK_OFFICE_DEV_USER:-100:bo:users,bo:users:modify}
         VITE_USE_MOCKS: 'false'
     ports:
       - '${BACK_OFFICE_PORT:-8081}:8080'
-    depends_on:
-      wallet-core: { condition: service_healthy }
     healthcheck:
       test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/']
       interval: 10s
