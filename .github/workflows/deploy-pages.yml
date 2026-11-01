@@ -159,6 +159,9 @@ jobs:
           if [ -z "$record" ]; then
             cf -X POST "$records" -d "$body" | jq -e '.success' > /dev/null
             echo "Created DNS CNAME $HOST → $target"
+            # Pages checks the CNAME once when the domain is attached; give DNS a moment first,
+            # otherwise the domain can stay "pending: CNAME record not set" (fix: pages-domains.yml).
+            sleep 30
           elif [ "$(echo "$record" | jq -r '.type + " " + .content + " " + (.proxied|tostring)')" != "CNAME $target true" ]; then
             cf -X PUT "$records/$(echo "$record" | jq -r .id)" -d "$body" | jq -e '.success' > /dev/null
             echo "Updated DNS record $HOST → $target"
