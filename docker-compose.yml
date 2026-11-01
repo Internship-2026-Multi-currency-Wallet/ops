@@ -12,6 +12,8 @@ name: wallet
 
 x-backend-env: &backend-env
   NODE_ENV: production
+  # Environment name: prefixes Redis keys; DEV_AUTH is refused for *-uat.
+  APP_ENV: ${APP_ENV:-local}
   REDIS_URL: redis://redis:6379
   CLIENT: ${CLIENT:-demo}
   DEV_AUTH: ${DEV_AUTH:-true}

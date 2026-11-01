@@ -69,7 +69,9 @@ Authorization: Dev <userId>:<perm1,perm2>      e.g.  Dev 1:wallet   or   Dev 100
 
 (for GraphQL subscriptions: the same value as `Authorization` in the graphql-ws connection params).
 The frontends send the dev user configured at build time (`CLIENT_WEB_DEV_USER`, `BACK_OFFICE_DEV_USER`).
-Dev auth is for local development only; real login replaces it.
+Dev auth is for local development only; real login replaces it. The backends refuse to start with
+`DEV_AUTH=true` when `APP_ENV` is a client UAT (`kvitka-uat`, `wisla-uat`); locally `APP_ENV=local`.
+All Redis channels, streams and queues are prefixed with `APP_ENV` (e.g. `local:rate.tick`).
 
 ## Common tasks
 
