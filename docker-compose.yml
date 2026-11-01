@@ -1,0 +1,146 @@
+# Local development stack for the wallet.
+#
+# Expects all repositories cloned side by side:
+#   wallet-core/  rates-service/  treasury-service/  client-web/  back-office/  ops/
+#
+#   cp .env.example .env      # optional, defaults work out of the box
+#   docker compose up --build
+#
+# PayGate is not part of this stack: it is an external sandbox (see README).
+
+name: wallet
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  REDIS_URL: redis://redis:6379
+  CLIENT: ${CLIENT:-demo}
+  DEV_AUTH: ${DEV_AUTH:-true}
+  CORS_ORIGINS: http://localhost:${CLIENT_WEB_PORT:-8080},http://localhost:${BACK_OFFICE_PORT:-8081},http://localhost:5173,http://localhost:5174
+
+x-backend-healthcheck: &backend-healthcheck
+  test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/health']
+  interval: 5s
+  timeout: 3s
+  retries: 20
+  start_period: 10s
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_USER: ${MYSQL_USER:-wallet}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-wallet}
+    ports:
+      - '${MYSQL_PORT:-3306}:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 -u root -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  wallet-core:
+    build: ../wallet-core
+    # Apply pending migrations, then start the service.
+    command: sh -c "npm run migrate && node dist/main.js"
+    environment:
+      <<: *backend-env
+      PORT: 3000
+      DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/wallet_core
+    ports:
+      - '${WALLET_CORE_PORT:-3000}:3000'
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck: *backend-healthcheck
+
+  rates-service:
+    build: ../rates-service
+    command: sh -c "npm run migrate && node dist/main.js"
+    environment:
+      <<: *backend-env
+      PORT: 3000
+      DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/rates_service
+    ports:
+      - '${RATES_SERVICE_PORT:-3001}:3000'
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck: *backend-healthcheck
+
+  treasury-service:
+    build: ../treasury-service
+    command: sh -c "npm run migrate && node dist/main.js"
+    environment:
+      <<: *backend-env
+      PORT: 3000
+      ROLE: GATEWAY,WORKER
+      DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/treasury_service
+    ports:
+      - '${TREASURY_SERVICE_PORT:-3002}:3000'
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck: *backend-healthcheck
+
+  client-web:
+    build:
+      context: ../client-web
+      args:
+        # The browser calls the backends directly, so these are host URLs.
+        VITE_WALLET_CORE_URL: http://localhost:${WALLET_CORE_PORT:-3000}/graphql
+        VITE_RATES_SERVICE_URL: http://localhost:${RATES_SERVICE_PORT:-3001}/graphql
+        VITE_RATES_SERVICE_WS_URL: ws://localhost:${RATES_SERVICE_PORT:-3001}/graphql
+        VITE_CLIENT: ${CLIENT:-demo}
+        VITE_DEV_USER: ${CLIENT_WEB_DEV_USER:-1:wallet}
+        VITE_USE_MOCKS: 'false'
+    ports:
+      - '${CLIENT_WEB_PORT:-8080}:8080'
+    depends_on:
+      wallet-core: { condition: service_healthy }
+      rates-service: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  back-office:
+    build:
+      context: ../back-office
+      args:
+        VITE_WALLET_CORE_URL: http://localhost:${WALLET_CORE_PORT:-3000}/graphql
+        VITE_RATES_SERVICE_URL: http://localhost:${RATES_SERVICE_PORT:-3001}/graphql
+        VITE_TREASURY_SERVICE_URL: http://localhost:${TREASURY_SERVICE_PORT:-3002}/graphql
+        VITE_CLIENT: ${CLIENT:-demo}
+        VITE_DEV_USER: ${BACK_OFFICE_DEV_USER:-100:bo:users,bo:users:modify}
+        VITE_USE_MOCKS: 'false'
+    ports:
+      - '${BACK_OFFICE_PORT:-8081}:8080'
+    depends_on:
+      wallet-core: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mysql-data:
+  redis-data:
