@@ -10,6 +10,10 @@ on:
         description: Host to detach and attach again (e.g. staging.wallet.shatori.com); empty = only show status
         type: string
         default: ''
+      proxied:
+        description: Proxy the re-created DNS record through Cloudflare (orange cloud)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -23,6 +27,7 @@ jobs:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           RECREATE: ${{ inputs.recreate }}
+          PROXIED: ${{ inputs.proxied }}
         run: |
           set -euo pipefail
           cf() { curl -sS "$@" -H "Authorization: Bearer $CF_TOKEN" -H 'content-type: application/json'; }
@@ -40,8 +45,8 @@ jobs:
                     cf -X DELETE "$records/$rid" | jq -c '{success}'
                   done
                   sleep 10
-                  cf -X POST "$records" -d "$(jq -nc --arg n "$RECREATE" --arg c "$project.pages.dev" \
-                    '{type:"CNAME", name:$n, content:$c, proxied:true, ttl:1, comment:"Cloudflare Pages (internship CD)"}')" | jq -c '{success, errors}'
+                  cf -X POST "$records" -d "$(jq -nc --arg n "$RECREATE" --arg c "$project.pages.dev" --argjson p "$PROXIED" \
+                    '{type:"CNAME", name:$n, content:$c, proxied:$p, ttl:1, comment:"Cloudflare Pages (internship CD)"}')" | jq -c '{success, errors}'
                   sleep 60
                   cf -X POST "$base/$project/domains" -d "$(jq -nc --arg n "$RECREATE" '{name:$n}')" | jq -c '{success, errors}'
                   echo "Re-created $RECREATE on $project"
