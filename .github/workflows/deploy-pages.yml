@@ -1,0 +1,203 @@
+# Reusable deploy workflow for the frontends (Vite SPAs) → Cloudflare Pages (direct upload).
+#
+# Called by a thin workflow in client-web / back-office on push to main / client/<c>-uat:
+#
+#   jobs:
+#     deploy:
+#       uses: Internship-2026-Multi-currency-Wallet/ops/.github/workflows/deploy-pages.yml@main
+#       with:
+#         host-suffix: '-admin'                              # → <env>-admin.wallet.shatori.com
+#         staging-dev-user: '100:bo:users,bo:users:modify'
+#       secrets: inherit
+#
+# Layout: one Pages project per app and environment, named <app>-<env> (e.g. client-web-staging),
+# with the custom domain <env><host-suffix>.<base-domain>. The build gets that environment's VITE_*
+# values (VITE_APP_ENV selects the URL profile in src/config-env.ts).
+#
+# The setup is idempotent and runs on every deploy: create the Pages project if missing, upload,
+# attach the custom domain, create/repair the proxied DNS CNAME <host> → <project>.pages.dev
+# (an explicit record overrides the *.wallet wildcard that points to the VPS). Then wait until the
+# host serves exactly the index.html of this build, and check a deep link (SPA routing).
+#
+# Secrets (organization): CLOUDFLARE_API_TOKEN (Pages: Edit; DNS: Edit on the zone), CLOUDFLARE_ACCOUNT_ID.
+
+name: Deploy to Cloudflare Pages
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: App name, prefix of the Pages project (default = repository name)
+        type: string
+        default: ''
+      host-suffix:
+        description: Host is <env><host-suffix>.<base-domain> (client-web '', back-office '-admin')
+        type: string
+        default: ''
+      base-domain:
+        type: string
+        default: wallet.shatori.com
+      zone:
+        description: Cloudflare DNS zone of base-domain
+        type: string
+        default: shatori.com
+      staging-dev-user:
+        description: VITE_DEV_USER baked into the staging build (DEV_AUTH is off in client UATs)
+        type: string
+        default: ''
+      deep-link:
+        description: A client-side route that must also return the app (SPA fallback check)
+        type: string
+        default: /some/deep/link
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve environment
+        id: env
+        env:
+          BRANCH: ${{ github.ref_name }}
+          APP: ${{ inputs.app || github.event.repository.name }}
+          HOST_SUFFIX: ${{ inputs.host-suffix }}
+          BASE_DOMAIN: ${{ inputs.base-domain }}
+          STAGING_DEV_USER: ${{ inputs.staging-dev-user }}
+        run: |
+          case "$BRANCH" in
+            main) env=staging ;;
+            client/*-uat) env="${BRANCH#client/}" ;;
+            *) echo "::error::Branch '$BRANCH' is not deployed (main → staging, client/<c>-uat → <c>-uat)"; exit 1 ;;
+          esac
+          case "$env" in
+            staging) client=demo; dev_user="$STAGING_DEV_USER" ;;
+            *-uat) client="${env%-uat}"; dev_user="" ;;
+          esac
+          {
+            echo "env=$env"
+            echo "client=$client"
+            echo "dev_user=$dev_user"
+            echo "project=${APP}-${env}"
+            echo "host=${env}${HOST_SUFFIX}.${BASE_DOMAIN}"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Deploy \`$APP\` → \`$env\` (client \`$client\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pages project \`${APP}-${env}\`, https://${env}${HOST_SUFFIX}.${BASE_DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build
+        env:
+          VITE_APP_ENV: ${{ steps.env.outputs.env }}
+          VITE_CLIENT: ${{ steps.env.outputs.client }}
+          VITE_DEV_USER: ${{ steps.env.outputs.dev_user }}
+          VITE_USE_MOCKS: 'false'
+        run: |
+          npm run build
+          # Without a 404.html Pages serves index.html for unknown paths (SPA routing).
+          if [ -e dist/404.html ]; then echo "::error::dist/404.html disables the SPA fallback"; exit 1; fi
+
+      - name: Ensure the Pages project exists
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ steps.env.outputs.project }}
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/pages/projects"
+          code="$(curl -sS -o /tmp/project.json -w '%{http_code}' "$base/$PROJECT" -H "Authorization: Bearer $CF_TOKEN")"
+          if [ "$code" = 200 ]; then
+            echo "Pages project $PROJECT exists"
+          elif [ "$code" = 404 ]; then
+            curl -sSf -X POST "$base" -H "Authorization: Bearer $CF_TOKEN" -H 'content-type: application/json' \
+              -d "$(jq -nc --arg n "$PROJECT" '{name:$n, production_branch:"production"}')" | jq -c '{success}'
+            echo "Created Pages project $PROJECT"
+          else
+            echo "::error::Cloudflare API returned $code for project $PROJECT"; jq -c '.errors' /tmp/project.json; exit 1
+          fi
+
+      - name: Upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ steps.env.outputs.project }}
+        run: |
+          npx --yes wrangler@4 pages deploy dist --project-name "$PROJECT" --branch production \
+            --commit-hash "$GITHUB_SHA" --commit-message "${GITHUB_REF_NAME}@${GITHUB_SHA::7}" --commit-dirty=true
+
+      - name: Ensure custom domain and DNS record
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ steps.env.outputs.project }}
+          HOST: ${{ steps.env.outputs.host }}
+          ZONE: ${{ inputs.zone }}
+        run: |
+          set -euo pipefail
+          cf() { curl -sS "$@" -H "Authorization: Bearer $CF_TOKEN" -H 'content-type: application/json'; }
+          target="${PROJECT}.pages.dev"
+
+          zone_id="$(cf "https://api.cloudflare.com/client/v4/zones?name=$ZONE" | jq -r '.result[0].id // empty')"
+          [ -n "$zone_id" ] || { echo "::error::Zone $ZONE not visible to the token"; exit 1; }
+          records="https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records"
+          record="$(cf "$records?name=$HOST" | jq -c '.result[0] // empty')"
+          body="$(jq -nc --arg n "$HOST" --arg c "$target" '{type:"CNAME", name:$n, content:$c, proxied:true, ttl:1, comment:"Cloudflare Pages (internship CD)"}')"
+          if [ -z "$record" ]; then
+            cf -X POST "$records" -d "$body" | jq -e '.success' > /dev/null
+            echo "Created DNS CNAME $HOST → $target"
+          elif [ "$(echo "$record" | jq -r '.type + " " + .content + " " + (.proxied|tostring)')" != "CNAME $target true" ]; then
+            cf -X PUT "$records/$(echo "$record" | jq -r .id)" -d "$body" | jq -e '.success' > /dev/null
+            echo "Updated DNS record $HOST → $target"
+          else
+            echo "DNS CNAME $HOST → $target is in place"
+          fi
+
+          domains="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/pages/projects/$PROJECT/domains"
+          status="$(cf "$domains/$HOST" | jq -r '.result.status // empty')"
+          if [ -z "$status" ]; then
+            cf -X POST "$domains" -d "$(jq -nc --arg n "$HOST" '{name:$n}')" | jq -e '.success' > /dev/null
+            echo "Attached custom domain $HOST"
+          else
+            echo "Custom domain $HOST: $status"
+            if [ "$status" != active ]; then cf -X PATCH "$domains/$HOST" > /dev/null || true; fi
+          fi
+
+      - name: Wait until the new version is live
+        env:
+          HOST: ${{ steps.env.outputs.host }}
+          DEEP_LINK: ${{ inputs.deep-link }}
+        run: |
+          set -uo pipefail
+          # The entry script name is content-hashed, so it identifies this build.
+          entry="$(grep -o 'src="/assets/[^"]*\.js"' dist/index.html | head -n 1)"
+          echo "Expecting $entry"
+          for i in $(seq 1 90); do
+            page="$(curl -sS --max-time 10 "https://$HOST/" 2>/dev/null)"
+            if echo "$page" | grep -qF "$entry"; then
+              deep="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "https://$HOST$DEEP_LINK")"
+              if [ "$deep" = 200 ]; then
+                echo "Live: https://$HOST serves this build; $DEEP_LINK → 200"
+                echo "Live: https://$HOST ($entry)" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              echo "Deep link returned $deep"
+            fi
+            echo "Waiting ($i)…"
+            sleep 10
+          done
+          echo "::error::https://$HOST does not serve this build after 15 minutes"
+          exit 1
