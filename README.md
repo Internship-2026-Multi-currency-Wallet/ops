@@ -7,8 +7,8 @@ that starts it.
 **Infrastructure is always on, every application service is opt-in.** You usually work on one service from source
 (`npm run start:dev`) and need only MySQL + Redis, maybe plus one or two other services in Docker.
 
-Shared CI/CD workflows, release automation and the list of clients and environments will live here too —
-those are tasks.
+It also holds the **deploy workflows** shared by all repositories (see [Deployment](#deployment)). Release
+automation (cut-release, fan-out, cherry-pick) and the list of clients will live here too — those are tasks.
 
 ## Prerequisites
 
@@ -177,10 +177,81 @@ time (`VITE_CLIENT`); `./dev.sh up` rebuilds the named services. All clients sha
 ## PayGate
 
 PayGate (the sandbox card payment gateway) is **not** part of this stack. It is an external service, like a real
-payment provider: `https://paygate.wallet.shatori.com` (API docs at `/docs`). You get API keys per environment
+payment provider: <https://paygate.wallet.shatori.com> (API docs at `/docs`). You get API keys per environment
 from the mentor; keep them in your local `.env` files, never in Git.
+
+## Deployment
+
+Three environments, each serving one client. **Deploys happen only through CI** — a push (a merged PR) to the branch
+deploys that environment; nobody deploys by hand.
+
+| Environment (`APP_ENV`) | Branch              | `CLIENT` | `DEV_AUTH` |
+| ----------------------- | ------------------- | -------- | ---------- |
+| `staging`               | `main`              | `demo`   | `true`     |
+| `kvitka-uat`            | `client/kvitka-uat` | `kvitka` | `false`    |
+| `wisla-uat`             | `client/wisla-uat`  | `wisla`  | `false`    |
+
+### Hostnames
+
+| What             | Host                                           | Runs on          |
+| ---------------- | ---------------------------------------------- | ---------------- |
+| client-web       | `https://<env>.wallet.shatori.com`             | Cloudflare Pages |
+| back-office      | `https://<env>-admin.wallet.shatori.com`       | Cloudflare Pages |
+| wallet-core      | `https://<env>-wallet-core.wallet.shatori.com` | VPS (Dokploy)    |
+| rates-service    | `https://<env>-rates.wallet.shatori.com`       | VPS (Dokploy)    |
+| treasury-service | `https://<env>-treasury.wallet.shatori.com`    | VPS (Dokploy)    |
+| PayGate (shared) | `https://paygate.wallet.shatori.com`           | VPS (Dokploy)    |
+
+Backends serve GraphQL at `/graphql` (subscriptions: `wss://` on the same path) and `/health`. Their `CORS_ORIGINS`
+are the environment's client-web and back-office hosts. DNS: a wildcard `*.wallet` record points to the VPS
+(backends, PayGate); each frontend host has its own CNAME to its Pages project (created by the deploy workflow).
+
+### How CD works
+
+Each app repository has a thin `.github/workflows/deploy.yml` (on push to `main`, `client/kvitka-uat`,
+`client/wisla-uat`, and `workflow_dispatch`) that calls a reusable workflow here:
+
+- **`deploy-service.yml`** (wallet-core, rates-service, treasury-service, paygate):
+  1. resolve the environment from the branch (`main` → `staging`, `client/<c>-uat` → `<c>-uat`);
+  2. build the Docker image in GitHub Actions (`APP_VERSION` = commit SHA) and push it to
+     `ghcr.io/internship-2026-multi-currency-wallet/<repo>` as `<env>-<sha>` and `<env>-latest`;
+  3. point the Dokploy application `<repo>` in environment `<env>` of project _Internship 2026_ at `<env>-<sha>` and
+     redeploy it through the Dokploy API (looked up by name, no ids in Git);
+  4. wait for the Dokploy deployment, then poll `https://<env>-<service>.wallet.shatori.com/health` until it is `ok`
+     **and** reports the new SHA as `version`; otherwise the job fails. Docker Swarm starts the new container first
+     and rolls back automatically if it never becomes healthy.
+- **`deploy-pages.yml`** (client-web, back-office): resolve the environment, `npm ci && npm run build` with that
+  environment's `VITE_APP_ENV`, `VITE_CLIENT` and (staging only) `VITE_DEV_USER`, upload `dist/` with
+  `wrangler pages deploy` to the Pages project `<app>-<env>` (e.g. `client-web-staging`). The same job creates the
+  Pages project, the custom domain and the DNS CNAME if they are missing (idempotent), then waits until the host
+  serves exactly this build and a deep link returns the app (SPA fallback).
+- **`pages-domains.yml`** (manual): shows the state of all Pages custom domains and DNS records and can re-attach a
+  domain stuck in _pending_.
+
+The backends apply their migrations on start (container command `npm run migrate && node dist/main.js`).
+
+### Redeploy
+
+- Same commit again: _Actions → Deploy → Run workflow_ on the branch of the environment (or re-run the last run).
+- Roll back: revert the commit on the branch (a normal PR) — the revert deploys like any change.
+- Do not use the Dokploy _Deploy_ button for images that are not public (PayGate, or a new package not yet made
+  public): Dokploy pulls them with the short-lived token of the CI job.
+
+### Where things live (names only — values are never in Git)
+
+| What                   | Where                                                                                                                                                                                                                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dokploy project        | _Internship 2026_: environments `shared` (MySQL `mysql`, Redis `redis`, app `paygate`), `staging`, `kvitka-uat`, `wisla-uat` (apps `wallet-core`, `rates-service`, `treasury-service`)                                                                                                               |
+| Backend runtime config | Dokploy → app → _Environment_: `APP_ENV`, `CLIENT`, `DEV_AUTH`, `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGINS`, `NODE_OPTIONS`, `*_SERVICE_URL`, `ROLE` (treasury)                                                                                                                                      |
+| MySQL                  | One instance, databases `<env>_<service>` (e.g. `staging_wallet_core`); one user per environment (`staging`, `kvitka_uat`, `wisla_uat`) with access to its own databases only. Passwords: Dokploy → `mysql` (root/staging) and its _Environment_ (`KVITKA_UAT_DB_PASSWORD`, `WISLA_UAT_DB_PASSWORD`) |
+| Redis                  | One instance; environments isolated by the `APP_ENV` key/channel prefix. Password: Dokploy → `redis`                                                                                                                                                                                                 |
+| PayGate secrets        | Dokploy → `paygate` → _Environment_: `PAYGATE_ADMIN_PASSWORD`, `PAYGATE_MERCHANT_<ID>_API_KEY` / `_WEBHOOK_SECRET` (ids `STAGING`, `KVITKA_UAT`, `WISLA_UAT`); config file mount `/etc/paygate/config.toml`, volume `paygate-data`                                                                   |
+| GitHub secrets         | Repository secrets `DOKPLOY_URL`, `DOKPLOY_TOKEN` (backends, paygate); organization secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (frontends, ops)                                                                                                                                         |
+
+Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis and PayGate 64 MB.
 
 ## Not here yet
 
-- CI workflows (reusable PR checks) and deploy workflows — tasks.
+- CI checks on pull requests (lint, type check, tests) — a task.
+- Release automation (cut-release, fan-out, cherry-pick) and `clients.yml` — tasks.
 - Seed data — will be added later.

@@ -1,6 +1,6 @@
 # AGENTS.md — conventions for AI coding agents
 
-This is `ops`: docker-compose and `dev.sh` for local development (later also CI/CD workflows). Read `README.md` first.
+This is `ops`: docker-compose and `dev.sh` for local development, plus the reusable deploy workflows (`.github/workflows`). Read `README.md` first.
 
 - Keep the stack working from a clean state: `./dev.sh down --volumes && ./dev.sh up all`.
 - Infrastructure (`mysql`, `redis`) has no profile and always starts; every application service has the profiles
