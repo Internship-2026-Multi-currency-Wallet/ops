@@ -15,7 +15,7 @@
 # values (VITE_APP_ENV selects the URL profile in src/config-env.ts).
 #
 # The setup is idempotent and runs on every deploy: create the Pages project if missing, upload,
-# attach the custom domain, create/repair the proxied DNS CNAME <host> → <project>.pages.dev
+# attach the custom domain, create/repair the proxied DNS CNAME <host> → the project's *.pages.dev subdomain
 # (an explicit record overrides the *.wallet wildcard that points to the VPS). Then wait until the
 # host serves exactly the index.html of this build, and check a deep link (SPA routing).
 #
@@ -149,7 +149,11 @@ jobs:
         run: |
           set -euo pipefail
           cf() { curl -sS "$@" -H "Authorization: Bearer $CF_TOKEN" -H 'content-type: application/json'; }
-          target="${PROJECT}.pages.dev"
+          # *.pages.dev names are global: when <project>.pages.dev is taken by another account,
+          # Cloudflare assigns e.g. <project>-abc.pages.dev. Always use the project's real subdomain.
+          target="$(cf "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/pages/projects/$PROJECT" | jq -r '.result.subdomain // empty')"
+          [ -n "$target" ] || { echo "::error::Could not read the subdomain of Pages project $PROJECT"; exit 1; }
+          dns_changed=false
 
           zone_id="$(cf "https://api.cloudflare.com/client/v4/zones?name=$ZONE" | jq -r '.result[0].id // empty')"
           [ -n "$zone_id" ] || { echo "::error::Zone $ZONE not visible to the token"; exit 1; }
@@ -159,18 +163,26 @@ jobs:
           if [ -z "$record" ]; then
             cf -X POST "$records" -d "$body" | jq -e '.success' > /dev/null
             echo "Created DNS CNAME $HOST → $target"
-            # Pages checks the CNAME once when the domain is attached; give DNS a moment first,
-            # otherwise the domain can stay "pending: CNAME record not set" (fix: pages-domains.yml).
-            sleep 30
+            dns_changed=true
           elif [ "$(echo "$record" | jq -r '.type + " " + .content + " " + (.proxied|tostring)')" != "CNAME $target true" ]; then
             cf -X PUT "$records/$(echo "$record" | jq -r .id)" -d "$body" | jq -e '.success' > /dev/null
             echo "Updated DNS record $HOST → $target"
+            dns_changed=true
           else
             echo "DNS CNAME $HOST → $target is in place"
           fi
 
+          # Pages checks the CNAME when the domain is attached: give a new/changed record a moment, and
+          # re-attach a domain that is still pending (its check ran against the old record).
+          if [ "$dns_changed" = true ]; then sleep 30; fi
           domains="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/pages/projects/$PROJECT/domains"
           status="$(cf "$domains/$HOST" | jq -r '.result.status // empty')"
+          if [ -n "$status" ] && [ "$status" != active ] && [ "$dns_changed" = true ]; then
+            cf -X DELETE "$domains/$HOST" > /dev/null
+            echo "Detached pending custom domain $HOST to re-check it"
+            sleep 5
+            status=""
+          fi
           if [ -z "$status" ]; then
             cf -X POST "$domains" -d "$(jq -nc --arg n "$HOST" '{name:$n}')" | jq -e '.success' > /dev/null
             echo "Attached custom domain $HOST"

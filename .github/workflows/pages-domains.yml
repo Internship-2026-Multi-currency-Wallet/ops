@@ -45,15 +45,16 @@ jobs:
                     cf -X DELETE "$records/$rid" | jq -c '{success}'
                   done
                   sleep 10
-                  cf -X POST "$records" -d "$(jq -nc --arg n "$RECREATE" --arg c "$project.pages.dev" --argjson p "$PROXIED" \
+                  target="$(cf "$base/$project" | jq -r '.result.subdomain')"
+                  cf -X POST "$records" -d "$(jq -nc --arg n "$RECREATE" --arg c "$target" --argjson p "$PROXIED" \
                     '{type:"CNAME", name:$n, content:$c, proxied:$p, ttl:1, comment:"Cloudflare Pages (internship CD)"}')" | jq -c '{success, errors}'
                   sleep 60
                   cf -X POST "$base/$project/domains" -d "$(jq -nc --arg n "$RECREATE" '{name:$n}')" | jq -c '{success, errors}'
                   echo "Re-created $RECREATE on $project"
                 fi
               fi
-              cf "$base/$project/domains" | jq -c --arg p "$project" '.result[]? |
-                {project: $p, name, status, verification: .verification_data, validation: (.validation_data | {status, method, error_message})}'
+              cf "$base/$project/domains" | jq -c --arg p "$project" --arg s "$(cf "$base/$project" | jq -r '.result.subdomain')" '.result[]? |
+                {project: $p, subdomain: $s, name, status, verification: .verification_data, validation: (.validation_data | {status, method, error_message})}'
             done
           done
 
