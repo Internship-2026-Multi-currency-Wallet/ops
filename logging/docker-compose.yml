@@ -1,0 +1,457 @@
+# Centralized logging for the internship backends: Loki (storage), Grafana (UI), Alloy (collector).
+# Deployed as the Dokploy Compose service "logging" (project "Internship 2026", environment "shared").
+#
+# - Alloy reads the Docker logs of the backend containers ONLY (names <env>-<service>-…, e.g.
+#   staging-wallet-core-zpj2hs.1…) and sends them to Loki with the labels env, service, level
+#   (taken from the JSON log line; env/service fall back to the container name).
+# - Loki keeps 14 days on the local filesystem (volume loki-data) and is not exposed publicly.
+# - Grafana: https://logs.wallet.shatori.com (Dokploy domain → service grafana, port 3000).
+#   Anonymous access and sign-up are off. GRAFANA_ADMIN_PASSWORD comes from the Dokploy
+#   environment of this service — never commit it.
+
+services:
+  loki:
+    image: grafana/loki:3.7.9
+    restart: unless-stopped
+    command: ['-config.file=/etc/loki/config.yaml']
+    environment:
+      GOMEMLIMIT: 200MiB
+    configs:
+      - source: loki-config
+        target: /etc/loki/config.yaml
+    volumes:
+      - loki-data:/loki
+    networks: [logging]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  grafana:
+    image: grafana/grafana:12.4.14
+    restart: unless-stopped
+    depends_on: [loki]
+    environment:
+      GF_SERVER_ROOT_URL: https://logs.wallet.shatori.com
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in the Dokploy environment}
+      GF_SECURITY_COOKIE_SECURE: 'true'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_AUTH_DISABLE_LOGIN_FORM: 'false'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_USERS_ALLOW_ORG_CREATE: 'false'
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
+      GF_NEWS_NEWS_FEED_ENABLED: 'false'
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/logs.json
+      # Keep the footprint small: no bundled plugin downloads, no background update checks.
+      GF_PLUGINS_PREINSTALL_DISABLED: 'true'
+      GF_PLUGINS_PREINSTALL_AUTO_UPDATE: 'false'
+      GOMEMLIMIT: 150MiB
+    configs:
+      - source: grafana-datasources
+        target: /etc/grafana/provisioning/datasources/loki.yaml
+      - source: grafana-dashboard-provider
+        target: /etc/grafana/provisioning/dashboards/internship.yaml
+      - source: grafana-dashboard-logs
+        target: /etc/grafana/dashboards/logs.json
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks: [logging]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    restart: unless-stopped
+    depends_on: [loki]
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=127.0.0.1:12345
+      - /etc/alloy/config.alloy
+    environment:
+      GOMEMLIMIT: 100MiB
+    configs:
+      - source: alloy-config
+        target: /etc/alloy/config.alloy
+    volumes:
+      # Read access to the Docker API (container list + logs). Only the backend containers are kept.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    networks: [logging]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+# Loki is reachable only on this internal network (Grafana is also attached to dokploy-network by Dokploy).
+networks:
+  logging: {}
+
+volumes:
+  loki-data:
+  grafana-data:
+  alloy-data:
+
+configs:
+  loki-config:
+    content: |
+      auth_enabled: false
+      server:
+        http_listen_port: 3100
+        grpc_listen_port: 9096
+        log_level: warn
+      common:
+        instance_addr: 127.0.0.1
+        path_prefix: /loki
+        replication_factor: 1
+        ring:
+          kvstore:
+            store: inmemory
+        storage:
+          filesystem:
+            chunks_directory: /loki/chunks
+            rules_directory: /loki/rules
+      schema_config:
+        configs:
+          - from: 2026-01-01
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+      limits_config:
+        retention_period: 336h # 14 days
+        allow_structured_metadata: true
+        volume_enabled: true
+        ingestion_rate_mb: 4
+        ingestion_burst_size_mb: 8
+      compactor:
+        working_directory: /loki/compactor
+        compaction_interval: 10m
+        retention_enabled: true
+        retention_delete_delay: 2h
+        delete_request_store: filesystem
+      query_range:
+        results_cache:
+          cache:
+            embedded_cache:
+              enabled: true
+              max_size_mb: 32
+      pattern_ingester:
+        enabled: false
+      analytics:
+        reporting_enabled: false
+
+  alloy-config:
+    content: |
+      // Docker logs of the internship backends only → Loki.
+      discovery.docker "all" {
+        host             = "unix:///var/run/docker.sock"
+        refresh_interval = "15s"
+      }
+
+      // Keep only <env>-<service>-<suffix>.<task> containers (Dokploy swarm tasks of the backends).
+      discovery.relabel "backends" {
+        targets = discovery.docker.all.targets
+        rule {
+          source_labels = ["__meta_docker_container_name"]
+          regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+\\..*"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_docker_container_name"]
+          regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-.*"
+          target_label  = "env"
+          replacement   = "$$1"
+        }
+        rule {
+          source_labels = ["__meta_docker_container_name"]
+          regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-.*"
+          target_label  = "service"
+          replacement   = "$$2"
+        }
+      }
+
+      loki.source.docker "backends" {
+        host             = "unix:///var/run/docker.sock"
+        targets          = discovery.relabel.backends.output
+        refresh_interval = "15s"
+        forward_to       = [loki.process.json.receiver]
+      }
+
+      // Labels from the JSON line: level, env (appEnv), service. requestId stays in the line (high cardinality).
+      loki.process "json" {
+        stage.json {
+          expressions = { level = "level", env = "appEnv", service = "service" }
+        }
+        stage.labels {
+          values = { level = "", env = "", service = "" }
+        }
+        forward_to = [loki.write.local.receiver]
+      }
+
+      loki.write "local" {
+        endpoint {
+          url = "http://loki:3100/loki/api/v1/push"
+        }
+      }
+
+  grafana-datasources:
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Loki
+          uid: loki
+          type: loki
+          access: proxy
+          url: http://loki:3100
+          isDefault: true
+          editable: false
+          jsonData:
+            maxLines: 2000
+
+  grafana-dashboard-provider:
+    content: |
+      apiVersion: 1
+      providers:
+        - name: internship
+          folder: Internship
+          type: file
+          disableDeletion: true
+          allowUiUpdates: false
+          options:
+            path: /etc/grafana/dashboards
+
+  grafana-dashboard-logs:
+    content: |
+          {
+            "uid": "internship-logs",
+            "title": "Logs",
+            "tags": [
+              "internship"
+            ],
+            "timezone": "browser",
+            "schemaVersion": 39,
+            "version": 1,
+            "refresh": "30s",
+            "time": {
+              "from": "now-1h",
+              "to": "now"
+            },
+            "templating": {
+              "list": [
+                {
+                  "name": "env",
+                  "label": "Environment",
+                  "type": "query",
+                  "datasource": {
+                    "type": "loki",
+                    "uid": "loki"
+                  },
+                  "query": {
+                    "label": "env",
+                    "stream": "",
+                    "type": 1
+                  },
+                  "definition": "label_values(env)",
+                  "includeAll": true,
+                  "multi": true,
+                  "current": {
+                    "text": "All",
+                    "value": "$$__all"
+                  },
+                  "allValue": ".+",
+                  "refresh": 2
+                },
+                {
+                  "name": "service",
+                  "label": "Service",
+                  "type": "query",
+                  "datasource": {
+                    "type": "loki",
+                    "uid": "loki"
+                  },
+                  "query": {
+                    "label": "service",
+                    "stream": "",
+                    "type": 1
+                  },
+                  "definition": "label_values(service)",
+                  "includeAll": true,
+                  "multi": true,
+                  "current": {
+                    "text": "All",
+                    "value": "$$__all"
+                  },
+                  "allValue": ".+",
+                  "refresh": 2
+                },
+                {
+                  "name": "level",
+                  "label": "Level",
+                  "type": "custom",
+                  "query": "error,warn,info,debug",
+                  "includeAll": true,
+                  "multi": true,
+                  "current": {
+                    "text": "All",
+                    "value": "$$__all"
+                  },
+                  "allValue": ".*",
+                  "options": []
+                },
+                {
+                  "name": "requestId",
+                  "label": "requestId",
+                  "type": "textbox",
+                  "query": "",
+                  "current": {
+                    "text": "",
+                    "value": ""
+                  }
+                },
+                {
+                  "name": "search",
+                  "label": "Search text",
+                  "type": "textbox",
+                  "query": "",
+                  "current": {
+                    "text": "",
+                    "value": ""
+                  }
+                }
+              ]
+            },
+            "panels": [
+              {
+                "id": 1,
+                "type": "stat",
+                "title": "Errors (selected range)",
+                "gridPos": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 6,
+                  "h": 6
+                },
+                "datasource": {
+                  "type": "loki",
+                  "uid": "loki"
+                },
+                "targets": [
+                  {
+                    "refId": "A",
+                    "datasource": {
+                      "type": "loki",
+                      "uid": "loki"
+                    },
+                    "expr": "sum(count_over_time({env=~\"$$env\", service=~\"$$service\", level=\"error\"} [$$__range]))",
+                    "queryType": "range"
+                  }
+                ],
+                "options": {
+                  "reduceOptions": {
+                    "calcs": [
+                      "lastNotNull"
+                    ]
+                  },
+                  "colorMode": "background"
+                },
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "short",
+                    "thresholds": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": null
+                        },
+                        {
+                          "color": "red",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  },
+                  "overrides": []
+                }
+              },
+              {
+                "id": 2,
+                "type": "timeseries",
+                "title": "Errors and warnings per service",
+                "gridPos": {
+                  "x": 6,
+                  "y": 0,
+                  "w": 18,
+                  "h": 6
+                },
+                "datasource": {
+                  "type": "loki",
+                  "uid": "loki"
+                },
+                "targets": [
+                  {
+                    "refId": "A",
+                    "datasource": {
+                      "type": "loki",
+                      "uid": "loki"
+                    },
+                    "expr": "sum by (env, service, level) (count_over_time({env=~\"$$env\", service=~\"$$service\", level=~\"error|warn\"} [$$__interval]))",
+                    "queryType": "range",
+                    "legendFormat": "{{env}} {{service}} {{level}}"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "custom": {
+                      "drawStyle": "bars",
+                      "fillOpacity": 60
+                    }
+                  },
+                  "overrides": []
+                }
+              },
+              {
+                "id": 3,
+                "type": "logs",
+                "title": "Logs",
+                "gridPos": {
+                  "x": 0,
+                  "y": 6,
+                  "w": 24,
+                  "h": 20
+                },
+                "datasource": {
+                  "type": "loki",
+                  "uid": "loki"
+                },
+                "targets": [
+                  {
+                    "refId": "A",
+                    "datasource": {
+                      "type": "loki",
+                      "uid": "loki"
+                    },
+                    "expr": "{env=~\"$$env\", service=~\"$$service\", level=~\"$$level\"} |= \"$$requestId\" |= \"$$search\"",
+                    "queryType": "range"
+                  }
+                ],
+                "options": {
+                  "showTime": true,
+                  "wrapLogMessage": true,
+                  "prettifyLogMessage": false,
+                  "enableLogDetails": true,
+                  "sortOrder": "Descending",
+                  "dedupStrategy": "none"
+                }
+              }
+            ]
+          }

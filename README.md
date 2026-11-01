@@ -241,14 +241,46 @@ The backends apply their migrations on start (container command `npm run migrate
 
 | What                   | Where                                                                                                                                                                                                                                                                                                |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dokploy project        | _Internship 2026_: environments `shared` (MySQL `mysql`, Redis `redis`, app `paygate`), `staging`, `kvitka-uat`, `wisla-uat` (apps `wallet-core`, `rates-service`, `treasury-service`)                                                                                                               |
+| Dokploy project        | _Internship 2026_: environments `shared` (MySQL `mysql`, Redis `redis`, app `paygate`, compose `logging`), `staging`, `kvitka-uat`, `wisla-uat` (apps `wallet-core`, `rates-service`, `treasury-service`)                                                                                            |
 | Backend runtime config | Dokploy → app → _Environment_: `APP_ENV`, `CLIENT`, `DEV_AUTH`, `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGINS`, `NODE_OPTIONS`, `*_SERVICE_URL`, `ROLE` (treasury)                                                                                                                                      |
 | MySQL                  | One instance, databases `<env>_<service>` (e.g. `staging_wallet_core`); one user per environment (`staging`, `kvitka_uat`, `wisla_uat`) with access to its own databases only. Passwords: Dokploy → `mysql` (root/staging) and its _Environment_ (`KVITKA_UAT_DB_PASSWORD`, `WISLA_UAT_DB_PASSWORD`) |
 | Redis                  | One instance; environments isolated by the `APP_ENV` key/channel prefix. Password: Dokploy → `redis`                                                                                                                                                                                                 |
 | PayGate secrets        | Dokploy → `paygate` → _Environment_: `PAYGATE_ADMIN_PASSWORD`, `PAYGATE_MERCHANT_<ID>_API_KEY` / `_WEBHOOK_SECRET` (ids `STAGING`, `KVITKA_UAT`, `WISLA_UAT`); config file mount `/etc/paygate/config.toml`, volume `paygate-data`                                                                   |
 | GitHub secrets         | Repository secrets `DOKPLOY_URL`, `DOKPLOY_TOKEN` (backends, paygate); organization secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (frontends, ops)                                                                                                                                         |
 
-Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis and PayGate 64 MB.
+Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis and PayGate 64 MB; logging stack
+see [Logging](#logging).
+
+## Logging
+
+```
+backend containers (JSON lines on stdout) ──► Alloy ──► Loki (14 days, filesystem) ──► Grafana
+                                     Docker API          internal network only       https://logs.wallet.shatori.com
+```
+
+- **In code** (all three backends): `nestjs-pino`, one JSON line per event with `service`, `appEnv`, `client`, `level`,
+  `context`, `requestId`; an access line per HTTP request; secrets redacted. How to log and how to search:
+  the handbook's `logging.md`.
+- **Collection**: the Dokploy Compose service `logging` (environment `shared`) runs Loki, Grafana and Alloy from
+  [`logging/docker-compose.yml`](logging/docker-compose.yml) (all configs inline; no secrets in the file). Alloy
+  reads the Docker logs of the backend containers **only** (container names
+  `<env>-<wallet-core|rates-service|treasury-service>-…`) and labels them `env`, `service`, `level` from the JSON
+  line. Loki is not published; Grafana is the only entry point.
+- **Grafana**: <https://logs.wallet.shatori.com>. Provisioned data source _Loki_ and the dashboard
+  _Internship → Logs_ (filters env/service/level, error count, error/warning graph, logs panel, search by
+  `requestId` or text). Anonymous access and sign-up are disabled.
+- **Admin password**: Dokploy → _Internship 2026_ → `shared` → `logging` → _Environment_ → `GRAFANA_ADMIN_PASSWORD`
+  (user `admin`). Changing it there only affects a fresh Grafana volume; afterwards change it in Grafana
+  (_Profile → Change password_).
+- **Intern accounts** (mentor): _Administration → Users and access → Users → New user_, set a temporary password,
+  role **Viewer** in the main organization (the default for new users). Interns change the password at first login.
+- **Where to look**: dashboard _Logs_ for day-to-day; _Explore_ for ad-hoc LogQL; `{env="staging"} |= "<requestId>"`
+  follows one request across services. Quick end-to-end check:
+  `curl -X POST https://staging-wallet-core.wallet.shatori.com/diagnostics/ping -H 'Authorization: Dev 1:wallet' -H 'x-request-id: check-1'`
+  and search `check-1`.
+- **Update the stack**: edit `logging/docker-compose.yml`, paste it into the Dokploy compose service (_Raw_ source),
+  deploy. Memory limits: Loki 256 MB, Grafana 256 MB (Grafana 12 idles at ~190 MB, so 200 MB was too tight),
+  Alloy 128 MB.
 
 ## Not here yet
 
