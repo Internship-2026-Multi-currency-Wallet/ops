@@ -48,8 +48,8 @@ on:
         default: true
       private-image:
         description: >-
-          The GHCR package is private: give Dokploy this job's read-only GITHUB_TOKEN to pull it.
-          The token expires when the job ends, so redeploys must go through this workflow.
+          The GHCR package is private on purpose (e.g. paygate). Not needed otherwise: a package
+          that cannot be pulled anonymously is detected and handled the same way.
         type: boolean
         default: false
     secrets:
@@ -162,7 +162,14 @@ jobs:
           fi
           echo "app_id=$app_id" >> "$GITHUB_OUTPUT"
 
-          if [ "$PRIVATE_IMAGE" = true ]; then
+          # Public package → Dokploy pulls anonymously. Private package (paygate, or a new package
+          # that has not been made public yet) → Dokploy gets this job's GITHUB_TOKEN (read access to
+          # the package). It expires when the job ends, so such a service is redeployed only by
+          # re-running this workflow; the running container keeps working.
+          repo_path="${IMAGE#ghcr.io/}"; repo_path="${repo_path%%:*}"
+          anon="$(curl -s -o /dev/null -w '%{http_code}' "https://ghcr.io/token?scope=repository:${repo_path}:pull")"
+          if [ "$PRIVATE_IMAGE" = true ] || [ "$anon" != 200 ]; then
+            echo "::notice::ghcr.io/$repo_path is private: Dokploy pulls it with this job's short-lived token"
             creds="$(jq -nc --arg u "$GITHUB_ACTOR" --arg p "$PULL_TOKEN" '{username:$u, password:$p, registryUrl:"ghcr.io"}')"
           else
             creds='{"username":null,"password":null,"registryUrl":null}'
