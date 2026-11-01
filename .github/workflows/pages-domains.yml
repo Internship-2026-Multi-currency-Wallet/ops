@@ -33,7 +33,16 @@ jobs:
               if [ -n "$RECREATE" ]; then
                 if cf "$base/$project/domains" | jq -e --arg h "$RECREATE" '.result[]? | select(.name == $h)' > /dev/null; then
                   cf -X DELETE "$base/$project/domains/$RECREATE" | jq -c '{success, errors}'
-                  sleep 5
+                  # Re-create the DNS record too, then give it time before Pages checks it again.
+                  zone_id="$(cf "https://api.cloudflare.com/client/v4/zones?name=shatori.com" | jq -r '.result[0].id')"
+                  records="https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records"
+                  for rid in $(cf "$records?name=$RECREATE" | jq -r '.result[].id'); do
+                    cf -X DELETE "$records/$rid" | jq -c '{success}'
+                  done
+                  sleep 10
+                  cf -X POST "$records" -d "$(jq -nc --arg n "$RECREATE" --arg c "$project.pages.dev" \
+                    '{type:"CNAME", name:$n, content:$c, proxied:true, ttl:1, comment:"Cloudflare Pages (internship CD)"}')" | jq -c '{success, errors}'
+                  sleep 60
                   cf -X POST "$base/$project/domains" -d "$(jq -nc --arg n "$RECREATE" '{name:$n}')" | jq -c '{success, errors}'
                   echo "Re-created $RECREATE on $project"
                 fi
