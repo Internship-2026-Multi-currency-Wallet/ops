@@ -181,7 +181,7 @@ jobs:
           HOST: ${{ steps.env.outputs.host }}
           DEEP_LINK: ${{ inputs.deep-link }}
         run: |
-          set -uo pipefail
+          set +e -uo pipefail # keep polling when curl fails (bash -e is the default)
           # The entry script name is content-hashed, so it identifies this build.
           entry="$(grep -o 'src="/assets/[^"]*\.js"' dist/index.html | head -n 1)"
           echo "Expecting $entry"
