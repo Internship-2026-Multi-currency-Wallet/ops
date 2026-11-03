@@ -40,8 +40,16 @@ services:
       GITHUB_APP__HANDLE_PUSH_TRIGGER: 'true'
       GITHUB_APP__PUSH_COMMANDS: '["/review"]'
       GITHUB_APP__FEEDBACK_ON_DRAFT_PR: 'false'
-      # Review. One comment per PR, updated on every push instead of a new one each time.
+      # Progress and outcome: a temporary "Preparing…" comment while running (default), then a reaction with the result,
+      # and model/tokens/time/cost at the end of each comment.
+      CONFIG__REACTION_ON_SUCCESS: rocket
+      CONFIG__REACTION_ON_FAILURE: confused
+      CONFIG__OUTPUT_RUN_DETAILS: 'true'
+      CONFIG__OUTPUT_RUN_COST: 'true'
+      # Review. One summary comment per PR, updated on every push; each finding also as an inline comment on its line.
       PR_REVIEWER__PERSISTENT_COMMENT: 'true'
+      PR_REVIEWER__FINAL_UPDATE_MESSAGE: 'false'
+      PR_REVIEWER__INLINE_KEY_ISSUES: 'true'
       PR_REVIEWER__NUM_MAX_FINDINGS: '7'
       PR_REVIEWER__REQUIRE_TESTS_REVIEW: 'true'
       PR_REVIEWER__REQUIRE_SECURITY_REVIEW: 'true'
