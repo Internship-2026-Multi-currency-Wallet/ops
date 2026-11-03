@@ -297,8 +297,11 @@ Every pull request in the organization gets an AI review from [PR-Agent](https:/
   requests R/W, Issues R/W, Contents R, Metadata R. Events: Pull request, Issue comment, Pull request review comment.
 - **Secrets**: Dokploy → `pr-agent` → _Environment_: `PR_AGENT_GITHUB_APP_ID`, `PR_AGENT_GITHUB_WEBHOOK_SECRET`,
   `PR_AGENT_GITHUB_PRIVATE_KEY_B64` (the app's `.pem`, base64 in one line), `PR_AGENT_OPENAI_KEY`.
-- **Per-repository settings**: a `.pr_agent.toml` in the repository root overrides the defaults from the compose file
-  (e.g. `[pr_reviewer] extra_instructions = "..."`).
+- **Review prompt**: `PR_REVIEWER__EXTRA_INSTRUCTIONS` in the compose file — appended to PR-Agent's built-in prompt
+  (critical stance, project context, risks to check, comment discipline, severity + fix per finding). One review
+  comment per PR, updated on every push; up to 7 findings.
+- **Per-repository settings**: a `.pr_agent.toml` in the repository root (default branch) overrides the defaults from
+  the compose file. `[pr_reviewer] extra_instructions` there **replaces** the shared prompt, so copy it and extend.
 - **Cost**: roughly $0.05–0.30 per run, paid from the OpenAI API balance; keep a monthly budget limit on the OpenAI
   project.
 
