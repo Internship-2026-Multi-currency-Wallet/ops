@@ -56,7 +56,11 @@ services:
       # Fingerprint inline comments so a push does not re-post a finding that is already on the PR.
       CONFIG__PERSISTENT_INLINE_COMMENTS: 'true'
       PR_REVIEWER__NUM_MAX_FINDINGS: '7'
-      PR_REVIEWER__REQUIRE_TESTS_REVIEW: 'true'
+      # Test files are dropped from the diff for every tool (describe, review, improve). fnmatch's '*' also matches '/',
+      # so these catch test files in any directory. With tests out of the diff, the "does the PR have tests" check
+      # would always answer no, so it is off.
+      IGNORE__GLOB: '["*.spec.*", "*.e2e-spec.*", "*.test.*"]'
+      PR_REVIEWER__REQUIRE_TESTS_REVIEW: 'false'
       PR_REVIEWER__REQUIRE_SECURITY_REVIEW: 'true'
       # Appended to PR-Agent's built-in review prompt. Keep '=' out of it: env values are parsed as TOML first.
       PR_REVIEWER__EXTRA_INSTRUCTIONS: |
@@ -85,7 +89,8 @@ services:
           logs or errors, trusting client input;
         - design: whether the abstraction and the module boundary are right, responsibilities that belong to another
           service, breaking changes to a GraphQL or event contract other services or frontends rely on;
-        - tests: new logic without tests, tests that cannot fail, mocks that hide the real behaviour;
+        - test files (*.spec.*, *.e2e-spec.*, *.test.*) are excluded from the diff you see: do not review them and
+          do not report missing tests;
         - repository conventions from AGENTS.md, README and the handbook.
 
         Comment discipline: flag every comment in the diff that narrates what the code does, restates a condition
