@@ -40,8 +40,11 @@ services:
       GITHUB_APP__HANDLE_PUSH_TRIGGER: 'true'
       GITHUB_APP__PUSH_COMMANDS: '["/review"]'
       GITHUB_APP__FEEDBACK_ON_DRAFT_PR: 'false'
-      # Progress and outcome: a temporary "Preparing…" comment while running (default), then a reaction with the result,
-      # and model/tokens/time/cost at the end of each comment.
+      # Automatic runs post no progress comment or reaction; a check run is their only progress signal: it shows
+      # "PR Agent - Review: in progress" in the PR checks and then holds the review summary (Checks tab).
+      # Needs the App permission Checks: read & write.
+      GITHUB__PUBLISH_AS_CHECK_RUN: 'true'
+      # Commands typed in a comment (/review, /ask …) get 👀 when picked up, then 🚀 or 😕.
       CONFIG__REACTION_ON_SUCCESS: rocket
       CONFIG__REACTION_ON_FAILURE: confused
       CONFIG__OUTPUT_RUN_DETAILS: 'true'
