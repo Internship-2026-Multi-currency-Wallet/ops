@@ -41,6 +41,15 @@ services:
       GF_USERS_ALLOW_SIGN_UP: 'false'
       GF_USERS_ALLOW_ORG_CREATE: 'false'
       GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      # Email for invites and "Forgot password", sent through Resend SMTP.
+      # The Resend login is always "resend"; the password is an API key (Sending access, wallet.shatori.com).
+      GF_SMTP_ENABLED: 'true'
+      GF_SMTP_HOST: smtp.resend.com:587
+      GF_SMTP_USER: resend
+      GF_SMTP_PASSWORD: ${GRAFANA_SMTP_PASSWORD:?set GRAFANA_SMTP_PASSWORD in the Dokploy environment}
+      GF_SMTP_FROM_ADDRESS: grafana@wallet.shatori.com
+      GF_SMTP_FROM_NAME: Wallet Logs
+      GF_SMTP_STARTTLS_POLICY: MandatoryStartTLS
       GF_ANALYTICS_REPORTING_ENABLED: 'false'
       GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
