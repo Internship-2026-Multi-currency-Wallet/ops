@@ -282,6 +282,26 @@ backend containers (JSON lines on stdout) ──► Alloy ──► Loki (14 day
   deploy. Memory limits: Loki 256 MB, Grafana 256 MB (Grafana 12 idles at ~190 MB, so 200 MB was too tight),
   Alloy 128 MB.
 
+## PR review (PR-Agent)
+
+Every pull request in the organization gets an AI review from [PR-Agent](https://github.com/The-PR-Agent/pr-agent)
+(model `gpt-6.1-sol`, OpenAI API). It is advice, not a gate: the human approvals stay required.
+
+- **When**: PR opened, reopened or marked _Ready for review_ → `/describe` (title/summary) + `/review`; every push to
+  the PR branch → `/review` again. Draft PRs are skipped. On demand, comment `/review`, `/describe`, `/improve` or
+  `/ask "<question>"` on a PR.
+- **Runs**: the Dokploy Compose service `pr-agent` (environment `shared`) from
+  [`pr-agent/docker-compose.yml`](pr-agent/docker-compose.yml) — source GitHub (`ops`, `main`), auto deploy, watch path
+  `pr-agent/**`. Webhook `https://pr-agent.wallet.shatori.com/api/v1/github_webhooks`. Memory limit 640 MB.
+- **GitHub App** _PR-Agent_ (organization settings → GitHub Apps), installed on all repositories. Permissions: Pull
+  requests R/W, Issues R/W, Contents R, Metadata R. Events: Pull request, Issue comment, Pull request review comment.
+- **Secrets**: Dokploy → `pr-agent` → _Environment_: `PR_AGENT_GITHUB_APP_ID`, `PR_AGENT_GITHUB_WEBHOOK_SECRET`,
+  `PR_AGENT_GITHUB_PRIVATE_KEY_B64` (the app's `.pem`, base64 in one line), `PR_AGENT_OPENAI_KEY`.
+- **Per-repository settings**: a `.pr_agent.toml` in the repository root overrides the defaults from the compose file
+  (e.g. `[pr_reviewer] extra_instructions = "..."`).
+- **Cost**: roughly $0.05–0.30 per run, paid from the OpenAI API balance; keep a monthly budget limit on the OpenAI
+  project.
+
 ## Not here yet
 
 - CI checks on pull requests (lint, type check, tests) — a task.
