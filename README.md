@@ -300,6 +300,8 @@ Every pull request in the organization gets an AI review from [PR-Agent](https:/
 - **Review prompt**: `PR_REVIEWER__EXTRA_INSTRUCTIONS` in the compose file — appended to PR-Agent's built-in prompt
   (critical stance, project context, risks to check, comment discipline, severity + fix per finding). One review
   summary per PR, updated on every push, plus each finding as an inline comment on its line; up to 7 findings.
+- **Test files are not reviewed**: `IGNORE__GLOB` drops `*.spec.*`, `*.e2e-spec.*` and `*.test.*` (in any directory)
+  from the diff for every command, and the "does the PR include tests" check is off, since it would see no tests.
 - **Is it running?** Automatic runs show up in the PR checks as _PR Agent - Review_ / _PR Agent - Describe_:
   _in progress_ while working, then done. The review summary is in that check (_Checks_ tab, with run details: model,
   tokens, time, cost); the findings are inline comments in the diff. Commands typed in a comment get 👀 when picked
