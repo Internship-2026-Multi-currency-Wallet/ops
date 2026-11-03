@@ -1,5 +1,7 @@
 # Centralized logging for the internship backends: Loki (storage), Grafana (UI), Alloy (collector).
 # Deployed as the Dokploy Compose service "logging" (project "Internship 2026", environment "shared").
+# Source: this file in GitHub (ops, main). A push that changes logging/** redeploys it automatically,
+# so never edit the compose in the Dokploy UI. Secrets (GRAFANA_*) live in the Dokploy Environment.
 #
 # - Alloy reads the Docker logs of the backend containers ONLY (names <env>-<service>-…, e.g.
 #   staging-wallet-core-zpj2hs.1…) and sends them to Loki with the labels env, service, level
