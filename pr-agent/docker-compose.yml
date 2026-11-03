@@ -53,6 +53,8 @@ services:
       PR_REVIEWER__PERSISTENT_COMMENT: 'true'
       PR_REVIEWER__FINAL_UPDATE_MESSAGE: 'false'
       PR_REVIEWER__INLINE_KEY_ISSUES: 'true'
+      # Fingerprint inline comments so a push does not re-post a finding that is already on the PR.
+      CONFIG__PERSISTENT_INLINE_COMMENTS: 'true'
       PR_REVIEWER__NUM_MAX_FINDINGS: '7'
       PR_REVIEWER__REQUIRE_TESTS_REVIEW: 'true'
       PR_REVIEWER__REQUIRE_SECURITY_REVIEW: 'true'
