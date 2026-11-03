@@ -1,0 +1,54 @@
+# AI review of pull requests in every repository of the organization: PR-Agent (https://github.com/The-PR-Agent/pr-agent)
+# running as a GitHub App webhook server, model gpt-6.1-sol through the OpenAI API (billed to the API account).
+# Deployed as the Dokploy Compose service "pr-agent" (project "Internship 2026", environment "shared").
+# Source: this file in GitHub (ops, main). A push that changes pr-agent/** redeploys it automatically,
+# so never edit the compose in the Dokploy UI. Secrets (PR_AGENT_*) live in the Dokploy Environment.
+#
+# - Webhook: https://pr-agent.wallet.shatori.com/api/v1/github_webhooks (Dokploy domain → service pr-agent, port 3000).
+#   GET / returns {"status":"ok"}.
+# - When it runs: PR opened / reopened / ready for review → /describe + /review; every push to the PR branch
+#   (GitHub "synchronize") → /review. Draft PRs are skipped. Anyone can also comment /review, /describe,
+#   /improve or /ask "<question>" on a PR.
+# - These settings apply to all repositories. A repository can override them in a `.pr_agent.toml` at its root.
+
+services:
+  pr-agent:
+    image: pragent/pr-agent:0.49.0-github_app
+    restart: unless-stopped
+    # The GitHub App private key is multi-line, so it is stored base64-encoded in one env var and decoded here.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        GITHUB__PRIVATE_KEY="$$(printf '%s' "$$PR_AGENT_GITHUB_PRIVATE_KEY_B64" | base64 -d)" || exit 1
+        export GITHUB__PRIVATE_KEY
+        unset PR_AGENT_GITHUB_PRIVATE_KEY_B64
+        exec python -m gunicorn -k uvicorn.workers.UvicornWorker -c pr_agent/servers/gunicorn_config.py \
+          --forwarded-allow-ips '*' pr_agent.servers.github_app:app
+    environment:
+      # Secrets (Dokploy → Internship 2026 → shared → pr-agent → Environment).
+      GITHUB__APP_ID: ${PR_AGENT_GITHUB_APP_ID:?set PR_AGENT_GITHUB_APP_ID in the Dokploy environment}
+      GITHUB__WEBHOOK_SECRET: ${PR_AGENT_GITHUB_WEBHOOK_SECRET:?set PR_AGENT_GITHUB_WEBHOOK_SECRET in the Dokploy environment}
+      PR_AGENT_GITHUB_PRIVATE_KEY_B64: ${PR_AGENT_GITHUB_PRIVATE_KEY_B64:?set PR_AGENT_GITHUB_PRIVATE_KEY_B64 in the Dokploy environment}
+      OPENAI__KEY: ${PR_AGENT_OPENAI_KEY:?set PR_AGENT_OPENAI_KEY in the Dokploy environment}
+      # Model.
+      CONFIG__MODEL: gpt-6.1-sol
+      CONFIG__REASONING_EFFORT: medium
+      # Triggers. Values are parsed as TOML.
+      GITHUB_APP__HANDLE_PR_ACTIONS: '["opened", "reopened", "ready_for_review"]'
+      GITHUB_APP__PR_COMMANDS: '["/describe", "/review"]'
+      GITHUB_APP__HANDLE_PUSH_TRIGGER: 'true'
+      GITHUB_APP__PUSH_COMMANDS: '["/review"]'
+      GITHUB_APP__FEEDBACK_ON_DRAFT_PR: 'false'
+      # The app code (~230 MB) is loaded once and shared by both workers.
+      GUNICORN_WORKERS: '2'
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 640M
