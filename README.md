@@ -278,8 +278,10 @@ backend containers (JSON lines on stdout) ──► Alloy ──► Loki (14 day
   follows one request across services. Quick end-to-end check:
   `curl -X POST https://staging-wallet-core.wallet.shatori.com/diagnostics/ping -H 'Authorization: Dev 1:wallet' -H 'x-request-id: check-1'`
   and search `check-1`.
-- **Update the stack**: edit `logging/docker-compose.yml`, paste it into the Dokploy compose service (_Raw_ source),
-  deploy. Memory limits: Loki 256 MB, Grafana 256 MB (Grafana 12 idles at ~190 MB, so 200 MB was too tight),
+- **Update the stack**: open a PR that changes `logging/docker-compose.yml`. The Dokploy service `logging` takes this
+  file from GitHub (`ops`, `main`, watch path `logging/**`), so merging the PR deploys it automatically — test the
+  change locally first and never edit the compose in the Dokploy UI. Deployment logs: Dokploy → _Internship 2026_ →
+  `shared` → `logging` → _Deployments_. Memory limits: Loki 256 MB, Grafana 256 MB (Grafana 12 idles at ~190 MB, so 200 MB was too tight),
   Alloy 128 MB.
 
 ## PR review (PR-Agent)
