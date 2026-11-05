@@ -263,11 +263,11 @@ jobs:
 
           failed="$(jq '[.[] | select(.new and .Error != "")] | length' <<< "$tasks")"
           last_error="$(jq -r '[.[] | select(.new and .Error != "")][0].Error // empty' <<< "$tasks")"
-          serving="$(jq -r '[.[] | select(.DesiredState == "Running")][0] | "\(.Image | sub(".*:"; "")) (\(.CurrentState))"' <<< "$tasks")"
+          newest="$(jq -r '.[0] // empty | "\(.Image // "?" | sub(".*:"; "")) \(.CurrentState)"' <<< "$tasks")"
           if [ -n "$last_error" ]; then
-            echo "::error title=New version of $app_name does not start::$failed task(s) of the new image failed: $last_error. Current task: $serving. Container logs: Dokploy → $app_name → Logs"
+            echo "::error title=New version of $app_name does not start::$failed task(s) of the new image failed: $last_error. Newest task: ${newest:-none}. Container logs: Dokploy → $app_name → Logs"
           else
-            echo "::notice title=No failed task of the new image::Current task: ${serving:-none}. Check the deployment and container logs of $app_name in Dokploy"
+            echo "::notice title=No failed task of the new image::Newest task: ${newest:-none}. Check the deployment and container logs of $app_name in Dokploy"
           fi
           {
             echo "#### Swarm tasks of \`$app_name\`"
