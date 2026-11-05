@@ -210,3 +210,60 @@ jobs:
           done
           echo "::error::$HEALTH_URL did not report a healthy new version within 5 minutes"
           exit 1
+
+      # Dokploy reports a deployment as done once the swarm service is updated, not once the new
+      # container is up: a container that crashes on start (e.g. a missing required env variable)
+      # or never turns healthy leaves the previous version serving. Show what swarm did with it.
+      # Only selected fields are printed: never the inspect dump, which contains the env (secrets).
+      - name: Show why the new version is not running
+        if: failure() && steps.dokploy.outputs.app_id != ''
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          APP_ID: ${{ steps.dokploy.outputs.app_id }}
+          IMAGE: ${{ steps.env.outputs.image }}:${{ steps.env.outputs.tag }}
+        run: |
+          set +e -uo pipefail # best effort: the job has already failed
+          api() { curl -sSf --max-time 30 "$DOKPLOY_URL/api/$1?$2" -H "x-api-key: $DOKPLOY_TOKEN"; }
+
+          app="$(api application.one "applicationId=$APP_ID")" \
+            || { echo "::warning::Could not read the Dokploy application"; exit 0; }
+          app_name="$(jq -r '.appName' <<< "$app")"
+          server_id="$(jq -r '.serverId // empty' <<< "$app")"
+          server_q="${server_id:+&serverId=$server_id}"
+
+          echo "Expected image: $IMAGE"
+          echo "::group::Swarm tasks of $app_name (newest first per slot)"
+          tasks="$(api docker.getServiceContainersByAppName "appName=$app_name$server_q")" \
+            || echo "::warning::Could not list swarm tasks (the API key needs docker read access)"
+          jq -r '.[] | "\(.name)\tdesired=\(.state)\t\(.currentState)\t\(.error)"' <<< "${tasks:-[]}"
+          echo "::endgroup::"
+
+          # Containers that stopped or are not healthy (docker ps -a lists the newest first).
+          containers="$(api docker.getContainersByAppNameMatch "appName=$app_name$server_q" | jq -r '
+            .[] | select(.state != "running" or (.status | test("unhealthy|health: starting"))) | .containerId' | head -n 3)"
+          for id in $containers; do
+            echo "::group::Container $id"
+            api docker.getConfig "containerId=$id$server_q" | jq -r '
+              "image:    \(.Config.Image)",
+              "state:    \(.State.Status), exit code \(.State.ExitCode), OOM killed \(.State.OOMKilled)",
+              "error:    \(.State.Error // "" | if . == "" then "-" else . end)",
+              "started:  \(.State.StartedAt), finished \(.State.FinishedAt)",
+              (.State.Health.Log // [] | .[-3:][] | "health:   exit \(.ExitCode) \(.Output | gsub("\\s+$"; ""))")'
+            echo "::endgroup::"
+          done
+
+          # Surface the most recent task error as an annotation on the run.
+          last_error="$(jq -r '[.[] | select(.error != "")][0] | .error // empty' <<< "${tasks:-[]}")"
+          if [ -n "$last_error" ]; then
+            echo "::error title=New task of $app_name failed::$last_error (container logs: Dokploy → $app_name → Logs)"
+          elif [ -z "$containers" ]; then
+            echo "::notice::No failed task or stopped container found for $app_name; check the deployment and container logs in Dokploy"
+          fi
+          {
+            echo "#### Swarm tasks of \`$app_name\`"
+            echo '```'
+            jq -r '.[] | "\(.name)  \(.currentState)  \(.error)"' <<< "${tasks:-[]}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
