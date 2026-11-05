@@ -13,7 +13,10 @@
 
 services:
   pr-agent:
-    image: pragent/pr-agent:0.49.0-github_app
+    # pragent/pr-agent:0.49.0-github_app plus one patch that keeps review memory on with check runs (see Dockerfile).
+    build: .
+    image: pr-agent-review-memory:0.49.0
+    pull_policy: build
     restart: unless-stopped
     # The GitHub App private key is multi-line, so it is stored base64-encoded in one env var and decoded here.
     entrypoint:
@@ -41,8 +44,9 @@ services:
       GITHUB_APP__PUSH_COMMANDS: '["/review"]'
       GITHUB_APP__FEEDBACK_ON_DRAFT_PR: 'false'
       # Automatic runs post no progress comment or reaction; a check run is their only progress signal: it shows
-      # "PR Agent - Review: in progress" in the PR checks and then holds the review summary (Checks tab).
-      # Needs the App permission Checks: read & write.
+      # "PR Agent - Review: in progress" in the PR checks, then success or failure. The review summary itself goes to
+      # the persistent PR comment, which carries the review memory (patch-review-memory.py); /describe output stays in
+      # its check run. Needs the App permission Checks: read & write.
       GITHUB__PUBLISH_AS_CHECK_RUN: 'true'
       # Commands typed in a comment (/review, /ask …) get 👀 when picked up, then 🚀 or 😕.
       CONFIG__REACTION_ON_SUCCESS: rocket
@@ -55,6 +59,12 @@ services:
       PR_REVIEWER__INLINE_KEY_ISSUES: 'true'
       # Fingerprint inline comments so a push does not re-post a finding that is already on the PR.
       CONFIG__PERSISTENT_INLINE_COMMENTS: 'true'
+      # Review memory: the summary comment stores every finding in a hidden marker, and the next /review gets them in
+      # its prompt with the instruction to repeat a still-valid one word for word (so its inline fingerprint matches)
+      # and not to re-raise one whose inline thread a human resolved. 7 detailed findings plus the resolved ones do
+      # not fit the default budget of 8000 characters.
+      PR_REVIEWER__PERSISTENT_FINDING_STATE: 'true'
+      PR_REVIEWER__MAX_PREVIOUS_FINDINGS_CHARS: '16000'
       PR_REVIEWER__NUM_MAX_FINDINGS: '7'
       # Test files are dropped from the diff for every tool (describe, review, improve). fnmatch's '*' also matches '/',
       # so these catch test files in any directory. With tests out of the diff, the "does the PR have tests" check
@@ -99,7 +109,9 @@ services:
         surprising fact about another API). Propose the deletion or the one-sentence replacement.
 
         For every finding give a severity (blocker, major, minor or nit), what is wrong, why it matters, and a
-        concrete fix. The author is learning: explain the reason so they can avoid the class of problem next time,
+        concrete fix. Start issue_content with the severity word; never put the severity in issue_header. When a
+        finding from earlier reviews still applies, repeat its issue_header and issue_content word for word; never
+        raise an earlier finding again under a new header or in new words. The author is learning: explain the reason so they can avoid the class of problem next time,
         not only this instance. Do not comment on formatting the linter already enforces. End with a one-line verdict
         on whether the PR is safe to merge.
       # The app code (~230 MB) is loaded once and shared by both workers.

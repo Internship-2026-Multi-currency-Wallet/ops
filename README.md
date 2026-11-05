@@ -294,7 +294,8 @@ Every pull request in the organization gets an AI review from [PR-Agent](https:/
   `/ask "<question>"` on a PR.
 - **Runs**: the Dokploy Compose service `pr-agent` (environment `shared`) from
   [`pr-agent/docker-compose.yml`](pr-agent/docker-compose.yml) — source GitHub (`ops`, `main`), auto deploy, watch path
-  `pr-agent/**`. Webhook `https://pr-agent.wallet.shatori.com/api/v1/github_webhooks`. Memory limit 640 MB.
+  `pr-agent/**`. Webhook `https://pr-agent.wallet.shatori.com/api/v1/github_webhooks`. Memory limit 640 MB. The image
+  is built on deploy from [`pr-agent/Dockerfile`](pr-agent/Dockerfile): the upstream image plus one patch (below).
 - **GitHub App** _PR-Agent_ (organization settings → GitHub Apps), installed on all repositories. Permissions: Pull
   requests R/W, Issues R/W, Contents R, Metadata R. Events: Pull request, Issue comment, Pull request review comment.
 - **Secrets**: Dokploy → `pr-agent` → _Environment_: `PR_AGENT_GITHUB_APP_ID`, `PR_AGENT_GITHUB_WEBHOOK_SECRET`,
@@ -305,9 +306,15 @@ Every pull request in the organization gets an AI review from [PR-Agent](https:/
 - **Test files are not reviewed**: `IGNORE__GLOB` drops `*.spec.*`, `*.e2e-spec.*` and `*.test.*` (in any directory)
   from the diff for every command, and the "does the PR include tests" check is off, since it would see no tests.
 - **Is it running?** Automatic runs show up in the PR checks as _PR Agent - Review_ / _PR Agent - Describe_:
-  _in progress_ while working, then done. The review summary is in that check (_Checks_ tab, with run details: model,
-  tokens, time, cost); the findings are inline comments in the diff. Commands typed in a comment get 👀 when picked
+  _in progress_ while working, then done. The review summary is one PR comment, _PR Reviewer Guide_, updated on every
+  push (with run details: model, tokens, time, cost); the findings are inline comments in the diff. Commands typed in a comment get 👀 when picked
   up, then 🚀 (success) or 😕 (failure). Needs the App permission _Checks: read & write_.
+- **No repeated findings**: the review comment keeps every finding in a hidden marker, and the next `/review` gets
+  them in its prompt: a finding that still applies is repeated word for word, so its inline comment is recognised as
+  already posted (`CONFIG__PERSISTENT_INLINE_COMMENTS`) instead of being posted again in new words. To close a finding
+  you will not fix, reply with the reason and _Resolve conversation_: later reviews do not raise it again. Upstream
+  PR-Agent turns this memory off when results go to check runs; [`patch-review-memory.py`](pr-agent/patch-review-memory.py)
+  keeps it on (the check run still shows progress), and the image build fails if a PR-Agent upgrade breaks the patch.
 - **Per-repository settings**: a `.pr_agent.toml` in the repository root (default branch) overrides the defaults from
   the compose file. `[pr_reviewer] extra_instructions` there **replaces** the shared prompt, so copy it and extend.
 - **Cost**: roughly $0.05–0.30 per run, paid from the OpenAI API balance; keep a monthly budget limit on the OpenAI
