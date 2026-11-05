@@ -66,6 +66,14 @@ jobs:
     name: Build and deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # One deploy at a time per Dokploy application, whatever branch triggered it: two overlapping
+    # swarm updates of the same service can leave it with no running task. The key mirrors
+    # "Resolve environment" (main → staging, client/<c>-uat maps 1:1, `environment` overrides).
+    # The caller's own concurrency group is per branch, so it does not cover this. As with any
+    # concurrency group, a newer queued deploy replaces an older queued one.
+    concurrency:
+      group: dokploy-${{ inputs.service || github.event.repository.name }}-${{ inputs.environment || (github.ref_name == 'main' && 'staging') || github.ref_name }}
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
