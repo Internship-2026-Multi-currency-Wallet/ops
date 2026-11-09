@@ -4,15 +4,15 @@
 #   wallet-core/  rates-service/  treasury-service/  client-web/  back-office/  ops/
 #
 # Use ./dev.sh instead of calling docker compose directly:
-#   ./dev.sh up                        # infrastructure only: MySQL + Redis
+#   ./dev.sh up                        # infrastructure only: MySQL + Redis + Mailpit
 #   ./dev.sh up rates-service          # infrastructure + rates-service in a container
 #   ./dev.sh up all                    # everything
 #
-# Infrastructure (mysql, redis) has no profile and always starts. Every application service is opt-in:
+# Infrastructure (mysql, redis, mailpit) has no profile and always starts. Every application service is opt-in:
 # it has a profile named after itself plus the profile "all".
 #
 # Networking:
-#   - containers reach the infrastructure by service name (mysql:3306, redis:6379);
+#   - containers reach the infrastructure by service name (mysql:3306, redis:6379, mailpit:1025);
 #   - containers reach the other backends via host.docker.internal:<host port>, which works both when the
 #     other backend runs in a container (published port) and when it runs on the host (npm run start:dev);
 #   - services running on the host reach everything via localhost:<host port>.
