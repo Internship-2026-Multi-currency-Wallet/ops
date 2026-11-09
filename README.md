@@ -41,7 +41,7 @@ wallet/
 
 ```sh
 cd ops
-./dev.sh up                                   # infrastructure only: MySQL (all databases) + Redis
+./dev.sh up                                   # infrastructure only: MySQL (all databases) + Redis + Mailpit
 ./dev.sh up rates-service                     # + rates-service in a container
 ./dev.sh up rates-service treasury-service    # + several services
 ./dev.sh up all                               # the whole system (what `docker compose up` used to do)
@@ -49,7 +49,7 @@ cd ops
 
 | Command                               | What it does                                                                                      |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `./dev.sh up [service...\|all]`       | Start MySQL + Redis and the named services; wait until healthy; print ports and env values        |
+| `./dev.sh up [service...\|all]`       | Start MySQL + Redis + Mailpit and the named services; wait until healthy; print ports and env values        |
 | `./dev.sh up <service...> --no-build` | The same without rebuilding the images (by default the named services are rebuilt, one at a time) |
 | `./dev.sh build <service...\|all>`    | Build images one at a time                                                                        |
 | `./dev.sh down`                       | Stop the whole stack (data is kept)                                                               |
@@ -82,6 +82,7 @@ The first build of a service takes a few minutes. The backends apply their datab
 | treasury-service | <http://localhost:3002/graphql> · `/health` | Gateway + worker in one container                                                      |
 | MySQL 8.4        | `localhost:3306`                            | User `wallet` / `wallet`; databases `wallet_core`, `rates_service`, `treasury_service` |
 | Redis 8          | `localhost:6379`                            | Events (pub/sub, streams) and BullMQ                                                   |
+| Mailpit          | <http://localhost:8025> · SMTP `localhost:1025` | Local email catcher: every email sent by a service shows up in the web UI           |
 
 A service has the same port whether it runs in Docker or from source, so the other services and the frontends do
 not care where it runs. Host ports can be changed in `.env` (`cp .env.example .env`).
@@ -103,6 +104,8 @@ set. `./dev.sh up` and `./dev.sh info` print the values:
 | ---------------------- | --------------------------------------------------- | -------------------------------------- |
 | `DATABASE_URL`         | `mysql://wallet:wallet@localhost:3306/<service_db>` | `mysql://wallet:wallet@mysql:3306/...` |
 | `REDIS_URL`            | `redis://localhost:6379`                            | `redis://redis:6379`                   |
+| `EMAIL_TRANSPORT`      | `smtp`                                              | `smtp`                                 |
+| `SMTP_URL`             | `smtp://localhost:1025`                             | `smtp://mailpit:1025`                  |
 | `WALLET_CORE_URL`      | `http://localhost:3000`                             | `http://host.docker.internal:3000`     |
 | `RATES_SERVICE_URL`    | `http://localhost:3001`                             | `http://host.docker.internal:3001`     |
 | `TREASURY_SERVICE_URL` | `http://localhost:3002`                             | `http://host.docker.internal:3002`     |
@@ -250,6 +253,32 @@ The backends apply their migrations on start (container command `npm run migrate
 
 Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis and PayGate 64 MB; logging stack
 see [Logging](#logging).
+
+## Email
+
+- **Provider**: [Resend](https://resend.com). Only `wallet-core` sends email (`src/email`).
+- **Domain**: `wallet.shatori.com`, verified in Resend (SPF, DKIM, DMARC records are in Cloudflare DNS, added by the
+  mentor). Sender address `no-reply@wallet.shatori.com` for every environment; the display name comes from the
+  client's brand, e.g. `Kvitka Bank <no-reply@wallet.shatori.com>`.
+- **Where the key lives**: one API key for all environments (sending access only, limited to the domain). Dokploy →
+  _Internship 2026_ → `staging`, `kvitka-uat`, `wisla-uat` → `wallet-core` → _Environment_. The team and the mentor
+  get it through the password manager / GitHub organization secrets. Never in Git, Asana or logs.
+- **Configuration per environment** (Dokploy → `wallet-core` → _Environment_):
+
+  | Variable          | Staging, kvitka-uat, wisla-uat | Local                   |
+  | ----------------- | ------------------------------ | ----------------------- |
+  | `EMAIL_TRANSPORT` | `resend`                       | `smtp`                  |
+  | `RESEND_API_KEY`  | the key                        | — (no key locally)      |
+  | `EMAIL_FROM`      | `no-reply@wallet.shatori.com`  | —                       |
+  | `SMTP_URL`        | —                              | `smtp://localhost:1025` |
+
+- **Local emails**: Mailpit starts with `./dev.sh up`. Open <http://localhost:8025> — every email a service sends is
+  there; nothing leaves your machine. SMTP is `localhost:1025` (`smtp://mailpit:1025` from a container, already set
+  for `wallet-core`). Ports can be changed with `MAILPIT_SMTP_PORT` / `MAILPIT_UI_PORT` in `.env`. Emails are kept
+  until Mailpit is restarted.
+- **Check a deployed environment**: send a test email to a Gmail address and make sure it lands in _Inbox_, not
+  _Spam_ (Gmail → _Show original_ should say `SPF: PASS`, `DKIM: PASS`, `DMARC: PASS`). Resend → _Emails_ shows
+  delivery status.
 
 ## Logging
 

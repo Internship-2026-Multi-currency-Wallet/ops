@@ -80,15 +80,32 @@ services:
       timeout: 3s
       retries: 20
 
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - '${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '${MAILPIT_UI_PORT:-8025}:8025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   wallet-core:
     <<: *backend
     profiles: [wallet-core, all]
     build: ../wallet-core
     # Apply pending migrations, then start the service.
     command: sh -c "npm run migrate && node dist/main.js"
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      mailpit: { condition: service_healthy }
     environment:
       <<: *backend-env
       PORT: 3000
+      EMAIL_TRANSPORT: smtp
+      SMTP_URL: smtp://mailpit:1025
       DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/wallet_core
     ports:
       - '${WALLET_CORE_PORT:-3000}:3000'
