@@ -15,7 +15,7 @@ ROOT_DIR="$(dirname "$OPS_DIR")"
 cd "$OPS_DIR"
 
 SERVICES="wallet-core rates-service treasury-service client-web back-office"
-INFRA="mysql redis"
+INFRA="mysql redis mailpit"
 
 die() {
   printf 'dev.sh: %s\n' "$*" >&2
@@ -61,6 +61,8 @@ env_value() {
 
 MYSQL_PORT="$(env_value MYSQL_PORT 3306)"
 REDIS_PORT="$(env_value REDIS_PORT 6379)"
+MAILPIT_SMTP_PORT="$(env_value MAILPIT_SMTP_PORT 1025)"
+MAILPIT_UI_PORT="$(env_value MAILPIT_UI_PORT 8025)"
 MYSQL_USER="$(env_value MYSQL_USER wallet)"
 MYSQL_PASSWORD="$(env_value MYSQL_PASSWORD wallet)"
 APP_ENV="$(env_value APP_ENV local)"
@@ -75,6 +77,7 @@ port_of() {
     back-office) env_value BACK_OFFICE_PORT 8081 ;;
     mysql) printf '%s' "$MYSQL_PORT" ;;
     redis) printf '%s' "$REDIS_PORT" ;;
+    mailpit) printf '%s' "$MAILPIT_UI_PORT" ;;
   esac
 }
 
@@ -116,7 +119,7 @@ resolve_services() {
         RESOLVED=($SERVICES)
         return
         ;;
-      mysql | redis) ;;
+      mysql | redis | mailpit) ;;
       *) is_service "$name" || die "unknown service '$name'. Known: $SERVICES (or 'all')." ;;
     esac
   done
@@ -193,7 +196,7 @@ cmd_down() {
 cmd_build() {
   [ "$#" -gt 0 ] || die "name the service(s) to build, e.g. ./dev.sh build wallet-core (or 'all')"
   resolve_services "$@"
-  [ "${#RESOLVED[@]}" -gt 0 ] || die "mysql and redis use prebuilt images; nothing to build."
+  [ "${#RESOLVED[@]}" -gt 0 ] || die "mysql, redis and mailpit use prebuilt images; nothing to build."
   build_one_by_one "${RESOLVED[@]}"
 }
 
@@ -229,6 +232,7 @@ print_info() {
     case "$s" in
       mysql) printf '  %-17s %-36s %s\n' "$s" "localhost:$port" "$where" ;;
       redis) printf '  %-17s %-36s %s\n' "$s" "localhost:$port" "$where" ;;
+      mailpit) printf '  %-17s %-36s %s\n' "$s" "http://localhost:$port" "$where" ;;
       client-web | back-office) printf '  %-17s %-36s %s\n' "$s" "http://localhost:$port" "$where" ;;
       *) printf '  %-17s %-36s %s\n' "$s" "http://localhost:$port/graphql" "$where" ;;
     esac
@@ -239,6 +243,7 @@ print_info() {
   printf 'only DEV_AUTH=true must be set (DEV_AUTH=true npm run start:dev, or in its .env):\n'
   printf '  APP_ENV=%s CLIENT=%s DEV_AUTH=true\n' "$APP_ENV" "$CLIENT"
   printf '  REDIS_URL=redis://localhost:%s\n' "$REDIS_PORT"
+  printf '  EMAIL_TRANSPORT=smtp SMTP_URL=smtp://localhost:%s   (emails: http://localhost:%s)\n' "$MAILPIT_SMTP_PORT" "$MAILPIT_UI_PORT"
   for s in wallet-core rates-service treasury-service; do
     printf '  %-17s DATABASE_URL=mysql://%s:%s@localhost:%s/%s\n' \
       "$s" "$MYSQL_USER" "$MYSQL_PASSWORD" "$MYSQL_PORT" "$(database_of "$s")"
