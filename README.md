@@ -47,17 +47,17 @@ cd ops
 ./dev.sh up all                               # the whole system (what `docker compose up` used to do)
 ```
 
-| Command                               | What it does                                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `./dev.sh up [service...\|all]`       | Start MySQL + Redis + Mailpit and the named services; wait until healthy; print ports and env values        |
-| `./dev.sh up <service...> --no-build` | The same without rebuilding the images (by default the named services are rebuilt, one at a time) |
-| `./dev.sh build <service...\|all>`    | Build images one at a time                                                                        |
-| `./dev.sh down`                       | Stop the whole stack (data is kept)                                                               |
-| `./dev.sh down <service...>`          | Stop and remove only these containers, e.g. to run that service from source instead               |
-| `./dev.sh down --volumes`             | Stop the whole stack and **delete all data** (MySQL, Redis)                                       |
-| `./dev.sh ps`                         | Containers and their health                                                                       |
-| `./dev.sh logs [service...]`          | Follow the logs                                                                                   |
-| `./dev.sh info`                       | Print the ports table and the env values for services run from source                             |
+| Command                               | What it does                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `./dev.sh up [service...\|all]`       | Start MySQL + Redis + Mailpit and the named services; wait until healthy; print ports and env values |
+| `./dev.sh up <service...> --no-build` | The same without rebuilding the images (by default the named services are rebuilt, one at a time)    |
+| `./dev.sh build <service...\|all>`    | Build images one at a time                                                                           |
+| `./dev.sh down`                       | Stop the whole stack (data is kept)                                                                  |
+| `./dev.sh down <service...>`          | Stop and remove only these containers, e.g. to run that service from source instead                  |
+| `./dev.sh down --volumes`             | Stop the whole stack and **delete all data** (MySQL, Redis)                                          |
+| `./dev.sh ps`                         | Containers and their health                                                                          |
+| `./dev.sh logs [service...]`          | Follow the logs                                                                                      |
+| `./dev.sh info`                       | Print the ports table and the env values for services run from source                                |
 
 Services: `wallet-core`, `rates-service`, `treasury-service`, `client-web`, `back-office`. Unknown names are
 rejected. The script works from any folder and on macOS (bash 3.2) and Linux.
@@ -73,16 +73,16 @@ npm run infra:down                            # = ../ops/dev.sh down
 
 The first build of a service takes a few minutes. The backends apply their database migrations on start.
 
-| Service          | URL                                         | Notes                                                                                  |
-| ---------------- | ------------------------------------------- | -------------------------------------------------------------------------------------- |
-| client-web       | <http://localhost:8080>                     | Built static app, dev user `1:wallet` (`npm run dev`: :5173)                           |
-| back-office      | <http://localhost:8081>                     | Built static app, dev user `100:bo:users,bo:users:modify` (`npm run dev`: :5174)       |
-| wallet-core      | <http://localhost:3000/graphql> · `/health` | GraphQL (Apollo Sandbox in the browser)                                                |
-| rates-service    | <http://localhost:3001/graphql> · `/health` | Subscriptions: `ws://localhost:3001/graphql`                                           |
-| treasury-service | <http://localhost:3002/graphql> · `/health` | Gateway + worker in one container                                                      |
-| MySQL 8.4        | `localhost:3306`                            | User `wallet` / `wallet`; databases `wallet_core`, `rates_service`, `treasury_service` |
-| Redis 8          | `localhost:6379`                            | Events (pub/sub, streams) and BullMQ                                                   |
-| Mailpit          | <http://localhost:8025> · SMTP `localhost:1025` | Local email catcher: every email sent by a service shows up in the web UI           |
+| Service          | URL                                             | Notes                                                                                  |
+| ---------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------- |
+| client-web       | <http://localhost:8080>                         | Built static app, dev user `1:wallet` (`npm run dev`: :5173)                           |
+| back-office      | <http://localhost:8081>                         | Built static app, dev user `100:bo:users,bo:users:modify` (`npm run dev`: :5174)       |
+| wallet-core      | <http://localhost:3000/graphql> · `/health`     | GraphQL (Apollo Sandbox in the browser)                                                |
+| rates-service    | <http://localhost:3001/graphql> · `/health`     | Subscriptions: `ws://localhost:3001/graphql`                                           |
+| treasury-service | <http://localhost:3002/graphql> · `/health`     | Gateway + worker in one container                                                      |
+| MySQL 8.4        | `localhost:3306`                                | User `wallet` / `wallet`; databases `wallet_core`, `rates_service`, `treasury_service` |
+| Redis 8          | `localhost:6379`                                | Events (pub/sub, streams) and BullMQ                                                   |
+| Mailpit          | <http://localhost:8025> · SMTP `localhost:1025` | Local email catcher: every email sent by a service shows up in the web UI              |
 
 A service has the same port whether it runs in Docker or from source, so the other services and the frontends do
 not care where it runs. Host ports can be changed in `.env` (`cp .env.example .env`).
