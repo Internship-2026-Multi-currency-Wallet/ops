@@ -342,7 +342,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "clamp_min(count by (env, service) (count_over_time(process_start_time_seconds{env=~\"$env\", service=~\"$service\"}[$__range])) - 1, 0) + sum by (env, service) (changes(process_start_time_seconds{env=~\"$env\", service=~\"$service\"}[$__range]))",
+          "expr": "sum by (env, service) (changes(process_start_time_seconds{env=~\"$env\", service=~\"$service\"}[$__range]) + (min_over_time(process_start_time_seconds{env=~\"$env\", service=~\"$service\"}[$__range]) > bool (time() - $__range_s)))",
           "legendFormat": "{{env}} {{service}}",
           "instant": true
         }
