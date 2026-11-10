@@ -1,19 +1,7 @@
-# Logs and metrics of the internship backends: Loki and Prometheus (storage), Grafana (UI), Alloy (logs) and
-# alloy-metrics (metrics).
+# Logs and metrics of the internship backends; see README, "Logging and metrics".
 # Deployed as the Dokploy Compose service "logging" (project "Internship 2026", environment "shared").
 # Source: this folder in GitHub (ops, main). A push that changes logging/** redeploys it automatically,
 # so never edit the compose in the Dokploy UI. Secrets (GRAFANA_*) live in the Dokploy Environment.
-#
-# - alloy reads the Docker logs of the backend containers ONLY (names <env>-<service>-…, e.g.
-#   staging-wallet-core-zpj2hs.1…) and sends them to Loki with the labels env, service, level
-#   (taken from the JSON log line; env/service fall back to the container name). Config: alloy/logs.alloy.
-# - alloy-metrics scrapes the backends (:9464 on dokploy-network), host and container metrics and the public
-#   /health endpoints, and pushes them to Prometheus. Config: alloy/metrics.alloy.
-# - Loki and Prometheus keep 14 days and are not exposed publicly.
-# - Grafana: https://logs.wallet.shatori.com (Dokploy domain → service grafana, port 3000).
-#   Anonymous access and sign-up are off. GRAFANA_ADMIN_PASSWORD comes from the Dokploy
-#   environment of this service — never commit it. Dashboards: grafana/dashboards/*.json.
-# - Locally: ./dev.sh up observability (adds docker-compose.local.yml).
 
 services:
   loki:
@@ -51,6 +39,12 @@ services:
     volumes:
       - prometheus-data:/prometheus
     networks: [logging]
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:9090/-/ready']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
     deploy:
       resources:
         limits:
@@ -59,7 +53,9 @@ services:
   grafana:
     image: grafana/grafana:12.4.14
     restart: unless-stopped
-    depends_on: [loki, prometheus]
+    depends_on:
+      loki: { condition: service_started }
+      prometheus: { condition: service_healthy }
     environment:
       GF_SERVER_ROOT_URL: https://logs.wallet.shatori.com
       GF_SECURITY_ADMIN_USER: admin
@@ -134,7 +130,8 @@ services:
   alloy-metrics:
     image: grafana/alloy:v1.21.3
     restart: unless-stopped
-    depends_on: [prometheus]
+    depends_on:
+      prometheus: { condition: service_healthy }
     command:
       - run
       - --storage.path=/var/lib/alloy/data
@@ -153,13 +150,22 @@ services:
       - /:/rootfs:ro
       - alloy-metrics-data:/var/lib/alloy/data
     networks: [logging, dokploy-network]
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - 'exec 3<>/dev/tcp/127.0.0.1/12345 && printf "GET /-/ready HTTP/1.0\r\n\r\n" >&3 && grep -q "Alloy is ready" <&3'
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
     deploy:
       resources:
         limits:
           memory: 192M
 
-# Loki and Prometheus are reachable only on this internal network (Grafana is also attached to
-# dokploy-network by Dokploy). alloy-metrics joins dokploy-network to scrape the backends.
+# Dokploy also attaches grafana to dokploy-network for its domain.
 networks:
   logging: {}
   dokploy-network:

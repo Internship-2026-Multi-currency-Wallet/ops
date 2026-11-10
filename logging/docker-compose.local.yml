@@ -1,5 +1,3 @@
-# Local overrides for ./dev.sh up observability (project wallet-observability). Not used on the server.
-
 services:
   prometheus:
     ports:

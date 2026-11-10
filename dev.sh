@@ -4,7 +4,6 @@
 #   ./dev.sh up                                  infrastructure only
 #   ./dev.sh up rates-service treasury-service   infrastructure + these services in containers
 #   ./dev.sh up all                              everything
-#   ./dev.sh up observability wallet-core        + logs and metrics (Loki, Prometheus, Grafana, Alloy)
 #   ./dev.sh help                                all commands
 #
 # Works on macOS (bash 3.2) and Linux. Run it from anywhere; it finds docker-compose.yml next to itself.
