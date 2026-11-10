@@ -67,6 +67,7 @@ MYSQL_USER="$(env_value MYSQL_USER wallet)"
 MYSQL_PASSWORD="$(env_value MYSQL_PASSWORD wallet)"
 APP_ENV="$(env_value APP_ENV local)"
 CLIENT="$(env_value CLIENT demo)"
+JWT_SECRET="$(env_value JWT_SECRET local-docker-jwt-secret-not-for-servers-01)"
 
 port_of() {
   case "$1" in
@@ -240,8 +241,9 @@ print_info() {
   printf '  ("-" = not in Docker: run it from source, or ./dev.sh up <service>)\n'
 
   printf '\nEnvironment for a service run on the host (npm run start:dev). The service defaults already match;\n'
-  printf 'only DEV_AUTH=true must be set (DEV_AUTH=true npm run start:dev, or in its .env):\n'
+  printf 'only DEV_AUTH=true (and JWT_SECRET next to backends in Docker) must be set, e.g. in its .env:\n'
   printf '  APP_ENV=%s CLIENT=%s DEV_AUTH=true\n' "$APP_ENV" "$CLIENT"
+  printf '  JWT_SECRET=%s   (same as the backends in Docker, so their tokens verify)\n' "$JWT_SECRET"
   printf '  REDIS_URL=redis://localhost:%s\n' "$REDIS_PORT"
   printf '  EMAIL_TRANSPORT=smtp SMTP_URL=smtp://localhost:%s   (emails: http://localhost:%s)\n' "$MAILPIT_SMTP_PORT" "$MAILPIT_UI_PORT"
   for s in wallet-core rates-service treasury-service; do

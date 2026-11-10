@@ -98,17 +98,20 @@ DEV_AUTH=true npm run start:dev
 ```
 
 The service defaults (`.env.example` of each backend) already point at the stack; only `DEV_AUTH=true` has to be
-set. `./dev.sh up` and `./dev.sh info` print the values:
+set, plus `JWT_SECRET` when the service exchanges tokens with a backend running in Docker (the backends in Docker run
+with `NODE_ENV=production`, which requires a secret that is not the services' built-in local one). `./dev.sh up` and
+`./dev.sh info` print the values:
 
-| Variable               | Service run from source (host)                      | Service in a container (preconfigured) |
-| ---------------------- | --------------------------------------------------- | -------------------------------------- |
-| `DATABASE_URL`         | `mysql://wallet:wallet@localhost:3306/<service_db>` | `mysql://wallet:wallet@mysql:3306/...` |
-| `REDIS_URL`            | `redis://localhost:6379`                            | `redis://redis:6379`                   |
-| `EMAIL_TRANSPORT`      | `smtp`                                              | `smtp`                                 |
-| `SMTP_URL`             | `smtp://localhost:1025`                             | `smtp://mailpit:1025`                  |
-| `WALLET_CORE_URL`      | `http://localhost:3000`                             | `http://host.docker.internal:3000`     |
-| `RATES_SERVICE_URL`    | `http://localhost:3001`                             | `http://host.docker.internal:3001`     |
-| `TREASURY_SERVICE_URL` | `http://localhost:3002`                             | `http://host.docker.internal:3002`     |
+| Variable               | Service run from source (host)                      | Service in a container (preconfigured)       |
+| ---------------------- | --------------------------------------------------- | -------------------------------------------- |
+| `DATABASE_URL`         | `mysql://wallet:wallet@localhost:3306/<service_db>` | `mysql://wallet:wallet@mysql:3306/...`       |
+| `REDIS_URL`            | `redis://localhost:6379`                            | `redis://redis:6379`                         |
+| `JWT_SECRET`           | the value printed by `./dev.sh info`                | `local-docker-jwt-secret-not-for-servers-01` |
+| `EMAIL_TRANSPORT`      | `smtp`                                              | `smtp`                                       |
+| `SMTP_URL`             | `smtp://localhost:1025`                             | `smtp://mailpit:1025`                        |
+| `WALLET_CORE_URL`      | `http://localhost:3000`                             | `http://host.docker.internal:3000`           |
+| `RATES_SERVICE_URL`    | `http://localhost:3001`                             | `http://host.docker.internal:3001`           |
+| `TREASURY_SERVICE_URL` | `http://localhost:3002`                             | `http://host.docker.internal:3002`           |
 
 How the pieces reach each other:
 
