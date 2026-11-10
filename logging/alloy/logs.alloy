@@ -1,0 +1,67 @@
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+}
+
+discovery.relabel "backends" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+\\..*"
+    target_label  = "env"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+\\..*"
+    target_label  = "service"
+    replacement   = "$2"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "wallet;(wallet-core|rates-service|treasury-service)"
+    target_label  = "env"
+    replacement   = "local"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "wallet;(wallet-core|rates-service|treasury-service)"
+    target_label  = "service"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["service"]
+    regex         = ".+"
+    action        = "keep"
+  }
+}
+
+loki.source.docker "backends" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.backends.output
+  refresh_interval = "15s"
+  forward_to       = [loki.process.json.receiver]
+}
+
+loki.process "json" {
+  stage.json {
+    expressions = {level = "level", env = "appEnv", service = "service"}
+  }
+
+  stage.labels {
+    values = {level = "", env = "", service = ""}
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

@@ -45,19 +45,22 @@ cd ops
 ./dev.sh up rates-service                     # + rates-service in a container
 ./dev.sh up rates-service treasury-service    # + several services
 ./dev.sh up all                               # the whole system (what `docker compose up` used to do)
+./dev.sh up observability wallet-core         # + logs and metrics in Grafana (see Logging and metrics)
 ```
 
-| Command                               | What it does                                                                                         |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `./dev.sh up [service...\|all]`       | Start MySQL + Redis + Mailpit and the named services; wait until healthy; print ports and env values |
-| `./dev.sh up <service...> --no-build` | The same without rebuilding the images (by default the named services are rebuilt, one at a time)    |
-| `./dev.sh build <service...\|all>`    | Build images one at a time                                                                           |
-| `./dev.sh down`                       | Stop the whole stack (data is kept)                                                                  |
-| `./dev.sh down <service...>`          | Stop and remove only these containers, e.g. to run that service from source instead                  |
-| `./dev.sh down --volumes`             | Stop the whole stack and **delete all data** (MySQL, Redis)                                          |
-| `./dev.sh ps`                         | Containers and their health                                                                          |
-| `./dev.sh logs [service...]`          | Follow the logs                                                                                      |
-| `./dev.sh info`                       | Print the ports table and the env values for services run from source                                |
+| Command                                  | What it does                                                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `./dev.sh up [service...\|all]`          | Start MySQL + Redis + Mailpit and the named services; wait until healthy; print ports and env values |
+| `./dev.sh up <service...> --no-build`    | The same without rebuilding the images (by default the named services are rebuilt, one at a time)    |
+| `./dev.sh up observability [service...]` | The same plus Loki, Prometheus, Grafana and both Alloys (project `wallet-observability`)             |
+| `./dev.sh build <service...\|all>`       | Build images one at a time                                                                           |
+| `./dev.sh down`                          | Stop the whole stack, observability included (data is kept)                                          |
+| `./dev.sh down <service...>`             | Stop and remove only these containers, e.g. to run that service from source instead                  |
+| `./dev.sh down observability`            | Stop only the observability stack                                                                    |
+| `./dev.sh down --volumes`                | Stop the whole stack and **delete all data** (MySQL, Redis, logs, metrics)                           |
+| `./dev.sh ps`                            | Containers and their health                                                                          |
+| `./dev.sh logs [service...]`             | Follow the logs (`./dev.sh logs observability`: the observability stack)                             |
+| `./dev.sh info`                          | Print the ports table and the env values for services run from source                                |
 
 Services: `wallet-core`, `rates-service`, `treasury-service`, `client-web`, `back-office`. Unknown names are
 rejected. The script works from any folder and on macOS (bash 3.2) and Linux.
@@ -83,6 +86,8 @@ The first build of a service takes a few minutes. The backends apply their datab
 | MySQL 8.4        | `localhost:3306`                                | User `wallet` / `wallet`; databases `wallet_core`, `rates_service`, `treasury_service` |
 | Redis 8          | `localhost:6379`                                | Events (pub/sub, streams) and BullMQ                                                   |
 | Mailpit          | <http://localhost:8025> · SMTP `localhost:1025` | Local email catcher: every email sent by a service shows up in the web UI              |
+| Grafana          | <http://localhost:3300>                         | Only with `observability`; login `admin` / `admin`                                     |
+| Prometheus       | <http://localhost:9090>                         | Only with `observability`                                                              |
 
 A service has the same port whether it runs in Docker or from source, so the other services and the frontends do
 not care where it runs. Host ports can be changed in `.env` (`cp .env.example .env`).
@@ -254,8 +259,8 @@ The backends apply their migrations on start (container command `npm run migrate
 | PayGate secrets        | Dokploy → `paygate` → _Environment_: `PAYGATE_ADMIN_PASSWORD`, `PAYGATE_MERCHANT_<ID>_API_KEY` / `_WEBHOOK_SECRET` (ids `STAGING`, `KVITKA_UAT`, `WISLA_UAT`); config file mount `/etc/paygate/config.toml`, volume `paygate-data`                                                                   |
 | GitHub secrets         | Repository secrets `DOKPLOY_URL`, `DOKPLOY_TOKEN` (backends, paygate); organization secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (frontends, ops)                                                                                                                                         |
 
-Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis and PayGate 64 MB; logging stack
-see [Logging](#logging).
+Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis and PayGate 64 MB; logging and
+metrics stack see [Logging and metrics](#logging-and-metrics).
 
 ## Email
 
@@ -283,38 +288,136 @@ see [Logging](#logging).
   _Spam_ (Gmail → _Show original_ should say `SPF: PASS`, `DKIM: PASS`, `DMARC: PASS`). Resend → _Emails_ shows
   delivery status.
 
-## Logging
+## Logging and metrics
 
 ```
-backend containers (JSON lines on stdout) ──► Alloy ──► Loki (14 days, filesystem) ──► Grafana
-                                     Docker API          internal network only       https://logs.wallet.shatori.com
+backend stdout (Docker API) ──────────────► alloy ──────────────────────────────► Loki (14 days) ──────┐
+                                                                                                       ▼
+backends /metrics :9464 (dokploy-network) ──┐                                                       Grafana
+host CPU / RAM / disk / network ────────────┤                                                          ▲
+CPU / memory per backend container ─────────┼──► alloy-metrics ──remote write──► Prometheus (14 days) ─┘
+public https://<env>-<service>…/health ─────┘    (every 15 s)
 ```
 
 - **In code** (all three backends): `nestjs-pino`, one JSON line per event with `service`, `appEnv`, `client`, `level`,
-  `context`, `requestId`; an access line per HTTP request; secrets redacted. How to log and how to search:
-  the handbook's `logging.md`.
-- **Collection**: the Dokploy Compose service `logging` (environment `shared`) runs Loki, Grafana and Alloy from
-  [`logging/docker-compose.yml`](logging/docker-compose.yml) (all configs inline; no secrets in the file). Alloy
-  reads the Docker logs of the backend containers **only** (container names
-  `<env>-<wallet-core|rates-service|treasury-service>-…`) and labels them `env`, `service`, `level` from the JSON
-  line. Loki is not published; Grafana is the only entry point.
-- **Grafana**: <https://logs.wallet.shatori.com>. Provisioned data source _Loki_ and the dashboard
-  _Internship → Logs_ (filters env/service/level, error count, error/warning graph, logs panel, search by
-  `requestId` or text). Anonymous access and sign-up are disabled.
+  `context`, `requestId`; an access line per HTTP request; secrets redacted. Metrics with `prom-client` on
+  `GET /metrics`, port `9464`, a separate listener that never gets a domain. How to log, which metrics exist, how to
+  read the dashboards and add a metric: the handbook's `logging.md` and `metrics.md`.
+- **Stack**: the Dokploy Compose service `logging` (environment `shared`) runs Loki, Prometheus, Grafana and two
+  Alloys from [`logging/`](logging) (no secrets in the files):
+
+  | File                                                           | What                                                       |
+  | -------------------------------------------------------------- | ---------------------------------------------------------- |
+  | [`docker-compose.yml`](logging/docker-compose.yml)             | Services, limits, Loki and Prometheus config, data sources |
+  | [`alloy/logs.alloy`](logging/alloy/logs.alloy)                 | `alloy`: Docker logs of the backends → Loki                |
+  | [`alloy/metrics.alloy`](logging/alloy/metrics.alloy)           | `alloy-metrics`: everything that goes to Prometheus        |
+  | [`grafana/dashboards/*.json`](logging/grafana/dashboards)      | Dashboards _Logs_, _Server_, _Services_                    |
+  | [`docker-compose.local.yml`](logging/docker-compose.local.yml) | Local overrides for `./dev.sh up observability`            |
+
+- **Which containers**: both Alloys keep the backend containers **only**. On the server: names
+  `<env>-<wallet-core|rates-service|treasury-service>-<suffix>.<task>`, `env` and `service` come from the name. Locally:
+  compose project `wallet` and service `wallet-core|rates-service|treasury-service`, `env=local`.
+- **Logs**: `alloy` reads the Docker logs and labels them `env`, `service`, `level` from the JSON line.
+- **Metrics**: `alloy-metrics` collects everything and pushes it to Prometheus with remote write; Prometheus scrapes
+  nothing itself. Two Alloys so that a metrics problem (a bad config, an OOM in cAdvisor) never stops log collection;
+  `alloy` keeps only `docker.sock`.
+  - **Backends**: found with Docker discovery, scraped on `<container ip in dokploy-network>:9464` every 15 s with
+    `honor_labels` (the backends label their own metrics `env` and `service`). `instance` is the container name, job
+    `backends`.
+  - **Host** (`prometheus.exporter.unix` on the host's `/proc`, `/sys` and `/`): CPU, load, memory, disk (ext4, xfs,
+    btrfs only) and network (`eth*`/`en*` only). Only the 10 series the _Server_ dashboard uses are kept.
+  - **Containers** (`prometheus.exporter.cadvisor`): CPU, working-set memory and memory limit per backend container.
+  - **Availability** (`prometheus.exporter.blackbox`): `GET https://<env>-<service>…/health` of all 9 backends every
+    15 s through DNS, TLS and Traefik, like a user. `probe_success` is 0 when the backend is down or `/health` returns
+    503 (MySQL or Redis down), even when `/metrics` has nothing to say.
+- **Grafana**: <https://logs.wallet.shatori.com>. Data sources _Loki_ (default) and _Prometheus_; dashboards in the
+  folder _Internship_:
+  - _Logs_: filters env/service/level, error count, error/warning graph, logs panel, search by `requestId` or text;
+  - _Server_ (filter env): host CPU, load, memory, disk, network; CPU and memory per backend container;
+  - _Services_ (filters env, service): availability, requests per second, error rate, latency p50/p95/p99, GraphQL
+    errors by code, top 10 slowest operations, event-loop lag, heap, restarts.
+
+  Anonymous access and sign-up are disabled.
+
 - **Admin password**: Dokploy → _Internship 2026_ → `shared` → `logging` → _Environment_ → `GRAFANA_ADMIN_PASSWORD`
   (user `admin`). Changing it there only affects a fresh Grafana volume; afterwards change it in Grafana
   (_Profile → Change password_).
 - **Intern accounts** (mentor): _Administration → Users and access → Users → New user_, set a temporary password,
   role **Viewer** in the main organization (the default for new users). Interns change the password at first login.
-- **Where to look**: dashboard _Logs_ for day-to-day; _Explore_ for ad-hoc LogQL; `{env="staging"} |= "<requestId>"`
+- **Where to look**: dashboard _Logs_ for day-to-day, _Services_ when something is slow or failing, _Server_ to tell
+  a service problem from a machine problem; _Explore_ for ad-hoc LogQL and PromQL; `{env="staging"} |= "<requestId>"`
   follows one request across services. Quick end-to-end check:
   `curl -X POST https://staging-wallet-core.wallet.shatori.com/diagnostics/ping -H 'Authorization: Dev 1:wallet' -H 'x-request-id: check-1'`
   and search `check-1`.
-- **Update the stack**: open a PR that changes `logging/docker-compose.yml`. The Dokploy service `logging` takes this
-  file from GitHub (`ops`, `main`, watch path `logging/**`), so merging the PR deploys it automatically — test the
-  change locally first and never edit the compose in the Dokploy UI. Deployment logs: Dokploy → _Internship 2026_ →
-  `shared` → `logging` → _Deployments_. Memory limits: Loki 256 MB, Grafana 256 MB (Grafana 12 idles at ~190 MB, so 200 MB was too tight),
-  Alloy 128 MB.
+- **Update the stack**: open a PR that changes `logging/**`. The Dokploy service `logging` takes
+  `logging/docker-compose.yml` from GitHub (`ops`, `main`, watch path `logging/**`), so merging the PR deploys it
+  automatically — test the change locally first and never edit the compose in the Dokploy UI. Deployment logs (they
+  show the command that ran): Dokploy → _Internship 2026_ → `shared` → `logging` → _Deployments_.
+- **Config-only changes**: Compose recreates a container only when its definition in `docker-compose.yml` changes.
+  When a PR changes only the content of a mounted file (`alloy/*.alloy`, `grafana/dashboards/*.json`), the default
+  Dokploy command (`docker compose -p <app> -f ./logging/docker-compose.yml up -d --build --remove-orphans`) keeps
+  the running containers with the old file. The command of `logging` therefore needs `--force-recreate` appended.
+  Check the deployment log: the changed service must say `Recreated`, not `Running`.
+
+### Memory and disk
+
+| Service         | Container limit | `GOMEMLIMIT` | Notes                                                               |
+| --------------- | --------------- | ------------ | ------------------------------------------------------------------- |
+| `loki`          | 256 MB          | 200 MiB      |                                                                     |
+| `prometheus`    | 256 MB          | 200 MiB      | About 6k series; `--query.max-samples=5000000` bounds heavy queries |
+| `grafana`       | 256 MB          | 150 MiB      | Grafana 12 idles at ~190 MB, so 200 MB was too tight                |
+| `alloy`         | 128 MB          | 100 MiB      | Logs only                                                           |
+| `alloy-metrics` | 192 MB          | 150 MiB      | cAdvisor, node exporter, blackbox and the remote-write WAL          |
+| **Total**       | **1088 MB**     |              |                                                                     |
+
+Loki and Prometheus keep 14 days; Prometheus also stops at 2 GB (`--storage.tsdb.retention.size`), whichever comes
+first. Expected disk use of Prometheus: 1–2 GB.
+
+### Ports and who can reach them
+
+| Port  | Service      | Reachable from                                                                                |
+| ----- | ------------ | --------------------------------------------------------------------------------------------- |
+| 3000  | `grafana`    | <https://logs.wallet.shatori.com> (Traefik). Locally `127.0.0.1:3300`                         |
+| 9090  | `prometheus` | Network `logging` only (Grafana, both Alloys). Locally `127.0.0.1:9090`                       |
+| 3100  | `loki`       | Network `logging` only                                                                        |
+| 9464  | backends     | Containers on `dokploy-network` only: never published, no domain; Traefik routes only `:3000` |
+| 12345 | both Alloys  | Loopback inside each container                                                                |
+
+Networks: `logging` (internal to the project) has all five services. `alloy-metrics` is the only one that also joins
+`dokploy-network`, to scrape the backends; locally the same attachment points at `wallet_default`.
+
+### Locally
+
+```sh
+./dev.sh up observability wallet-core     # MySQL + Redis + wallet-core + the whole logging and metrics stack
+```
+
+Grafana: <http://localhost:3300> (`admin` / `admin`), Prometheus: <http://localhost:9090>. It is the server's
+`logging/docker-compose.yml` with [`docker-compose.local.yml`](logging/docker-compose.local.yml) on top (ports on
+`127.0.0.1`, no secure cookies, no SMTP, `wallet_default` instead of `dokploy-network`); the Alloy configs and mounts
+are the same. Ports: `GRAFANA_PORT`, `PROMETHEUS_PORT` in `.env`.
+
+What the panels show locally:
+
+- _Server_: CPU, memory, load, disk and network of the **Docker VM** (Docker Desktop, Colima), not of the Mac or PC;
+  the VM's disk may appear under several mount points. The container panels show the local backend containers.
+- _Services_: the local backends (`env=local`), as on the server. _Public /health_ shows the **deployed**
+  environments: the probe checks their public URLs, local backends have none.
+- _Logs_: the local backends.
+- If the Docker host has no `/run/containerd/containerd.sock`, cAdvisor cannot read the containers and only the
+  container panels stay empty.
+
+### Change a dashboard
+
+1. `./dev.sh up observability <backend>` and generate some traffic (handbook `metrics.md`, _Try it_).
+2. In Grafana open the dashboard and edit it. Provisioned dashboards cannot be saved from the UI, so when done:
+   _Save dashboard_ → _Copy JSON to clipboard_ (or _Export_ → _Export as JSON_, without _Export for sharing
+   externally_).
+3. Paste it over `logging/grafana/dashboards/<name>.json`. Keep `uid`, keep data sources as
+   `{"type": "prometheus", "uid": "prometheus"}` / `{"type": "loki", "uid": "loki"}`, and remove the top-level `id`.
+4. `./dev.sh down observability && ./dev.sh up observability <backend>` and check the result.
+5. A new dashboard also needs a `configs:` entry in `logging/docker-compose.yml` (see `grafana-dashboard-server`).
+6. Open a PR; merging it deploys the dashboard.
 
 ## PR review (PR-Agent)
 

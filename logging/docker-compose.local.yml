@@ -1,0 +1,18 @@
+# Local overrides for ./dev.sh up observability (project wallet-observability). Not used on the server.
+
+services:
+  prometheus:
+    ports:
+      - '127.0.0.1:${PROMETHEUS_PORT:-9090}:9090'
+
+  grafana:
+    ports:
+      - '127.0.0.1:${GRAFANA_PORT:-3300}:3000'
+    environment:
+      GF_SERVER_ROOT_URL: http://localhost:${GRAFANA_PORT:-3300}
+      GF_SECURITY_COOKIE_SECURE: 'false'
+      GF_SMTP_ENABLED: 'false'
+
+networks:
+  dokploy-network:
+    name: wallet_default
