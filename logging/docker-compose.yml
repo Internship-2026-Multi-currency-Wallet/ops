@@ -1,6 +1,5 @@
-# Logs and metrics of the internship backends; see README, "Logging and metrics".
 # Deployed as the Dokploy Compose service "logging" (project "Internship 2026", environment "shared").
-# Source: this folder in GitHub (ops, main). A push that changes logging/** redeploys it automatically,
+# Source: this file in GitHub (ops, main). A push that changes logging/** redeploys it automatically,
 # so never edit the compose in the Dokploy UI. Secrets (GRAFANA_*) live in the Dokploy Environment.
 
 services:
@@ -165,7 +164,7 @@ services:
         limits:
           memory: 192M
 
-# Dokploy also attaches grafana to dokploy-network for its domain.
+# Loki is reachable only on this internal network (Grafana is also attached to dokploy-network by Dokploy).
 networks:
   logging: {}
   dokploy-network:

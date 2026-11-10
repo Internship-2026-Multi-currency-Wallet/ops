@@ -243,9 +243,9 @@ cmd_logs() {
 
 cmd_ps() {
   compose_all ps "$@"
-  if [ -n "$(compose_observability ps -q 2>/dev/null)" ]; then
+  if [ "$#" -eq 0 ] && [ -n "$(compose_observability ps -q 2>/dev/null)" ]; then
     printf '\nObservability (project %s)\n' "$OBSERVABILITY_PROJECT"
-    compose_observability ps "$@"
+    compose_observability ps
   fi
 }
 
