@@ -183,6 +183,14 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [logging]
+    # Shows in Dokploy when the event stream is gone or Docker does not answer; plain Compose does not restart an
+    # unhealthy container (an exited one is restarted by `restart`). `^` keeps pgrep from matching this check itself.
+    healthcheck:
+      test: ['CMD-SHELL', "pgrep -f '^docker events' > /dev/null && docker version > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     deploy:
       resources:
         limits:

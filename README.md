@@ -337,7 +337,9 @@ public https://<env>-<service>…/health ─────┘    (every 15 s)
     Each event gets the `env` / `service` of the container it is about, so `{service="redis"}` shows Redis's own lines
     and its die events in one time-ordered list. `level` is `error` for `oom` and for any exit code except 0 and 143
     (killed, crash), `info` for 0 and 143 (normal stop or restart). Events are lost while `docker-events` itself is
-    down (for example while a deploy recreates it, or during a Docker daemon restart); there are no duplicates.
+    down (for example while a deploy recreates it, or during a Docker daemon restart); there are no duplicates. Its
+    healthcheck (event process alive, Docker answering) only shows `unhealthy` in Dokploy: Compose restarts the
+    container when it exits, not when it is unhealthy.
     Server only: the local stack's Redis, MySQL and their events are not collected.
 - **Metrics**: `alloy-metrics` collects everything and pushes it to Prometheus with remote write; Prometheus scrapes
   nothing itself. Two Alloys so that a metrics problem (a bad config, an OOM in cAdvisor) never stops log collection;
