@@ -201,10 +201,6 @@ jobs:
         env:
           HEALTH_URL: ${{ steps.env.outputs.health_url }}
           CHECK_VERSION: ${{ inputs.check-version }}
-        # Accepted: HTTP 200, a single JSON object, status "ok" or "degraded" (e.g. Redis down: the
-        # new version runs, a dependency does not), and version == commit SHA unless check-version is
-        # false. Anything else (transport error, other HTTP status, redirect, other body) is retried.
-        # Covered by tests/test_deploy_health_gate.py, which runs this script as is.
         run: |
           set +e -uo pipefail # keep polling when curl fails (bash -e is the default)
           for i in $(seq 1 60); do
