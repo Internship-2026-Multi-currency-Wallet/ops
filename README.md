@@ -251,7 +251,7 @@ The backends apply their migrations on start (container command `npm run migrate
 | PayGate secrets        | Dokploy → `paygate` → _Environment_: `PAYGATE_ADMIN_PASSWORD`, `PAYGATE_MERCHANT_<ID>_API_KEY` / `_WEBHOOK_SECRET` (ids `STAGING`, `KVITKA_UAT`, `WISLA_UAT`); config file mount `/etc/paygate/config.toml`, volume `paygate-data`                                                                   |
 | GitHub secrets         | Repository secrets `DOKPLOY_URL`, `DOKPLOY_TOKEN` (backends, paygate); organization secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (frontends, ops)                                                                                                                                         |
 
-Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis and PayGate 64 MB; logging stack
+Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis 256 MB (reservation 64 MB), PayGate 64 MB; logging stack
 see [Logging](#logging).
 
 ## Email
@@ -283,18 +283,27 @@ see [Logging](#logging).
 ## Logging
 
 ```
-backend containers (JSON lines on stdout) ──► Alloy ──► Loki (14 days, filesystem) ──► Grafana
-                                     Docker API          internal network only       https://logs.wallet.shatori.com
+backend containers (JSON lines on stdout) ──┐
+shared Redis / MySQL (plain text on stdout) ─┼─► Alloy ──► Loki (14 days, filesystem) ──► Grafana
+docker-events (die/oom events, JSON) ────────┘  Docker API  internal network only       https://logs.wallet.shatori.com
 ```
 
 - **In code** (all three backends): `nestjs-pino`, one JSON line per event with `service`, `appEnv`, `client`, `level`,
   `context`, `requestId`; an access line per HTTP request; secrets redacted. How to log and how to search:
   the handbook's `logging.md`.
-- **Collection**: the Dokploy Compose service `logging` (environment `shared`) runs Loki, Grafana and Alloy from
-  [`logging/docker-compose.yml`](logging/docker-compose.yml) (all configs inline; no secrets in the file). Alloy
-  reads the Docker logs of the backend containers **only** (container names
-  `<env>-<wallet-core|rates-service|treasury-service>-…`) and labels them `env`, `service`, `level` from the JSON
-  line. Loki is not published; Grafana is the only entry point.
+- **Collection**: the Dokploy Compose service `logging` (environment `shared`) runs Loki, Grafana, Alloy and
+  `docker-events` from [`logging/docker-compose.yml`](logging/docker-compose.yml) (all configs inline; no secrets in
+  the file). Alloy reads the Docker logs of our containers **only**:
+  - backends (container names `<env>-<wallet-core|rates-service|treasury-service>-…`): labels `env`, `service`,
+    `level` from the JSON line;
+  - the shared Redis and MySQL (`internship-<redis|mysql>-…`): `env="shared"`, `service="redis"` / `"mysql"` from
+    the container name; their lines are plain text, so they have no `level`;
+  - `docker-events`, a small sidecar that prints one JSON line per `die` / `oom` event of those containers
+    (`action`, `exitCode`); Alloy gives each event the `env` / `service` of the container it is about, so
+    `{service="redis"}` shows Redis's own lines and "died with exit code 137" in one time-ordered list.
+
+  Container names of other projects on the server never reach Loki (and are filtered out inside `docker-events`
+  already). Loki is not published; Grafana is the only entry point.
 - **Grafana**: <https://logs.wallet.shatori.com>. Provisioned data source _Loki_ and the dashboard
   _Internship → Logs_ (filters env/service/level, error count, error/warning graph, logs panel, search by
   `requestId` or text). Anonymous access and sign-up are disabled.
@@ -311,7 +320,7 @@ backend containers (JSON lines on stdout) ──► Alloy ──► Loki (14 day
   file from GitHub (`ops`, `main`, watch path `logging/**`), so merging the PR deploys it automatically — test the
   change locally first and never edit the compose in the Dokploy UI. Deployment logs: Dokploy → _Internship 2026_ →
   `shared` → `logging` → _Deployments_. Memory limits: Loki 256 MB, Grafana 256 MB (Grafana 12 idles at ~190 MB, so 200 MB was too tight),
-  Alloy 128 MB.
+  Alloy 128 MB, docker-events 32 MB.
 
 ## PR review (PR-Agent)
 

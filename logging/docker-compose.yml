@@ -1,11 +1,16 @@
-# Centralized logging for the internship backends: Loki (storage), Grafana (UI), Alloy (collector).
+# Centralized logging for the internship backends and the shared Redis/MySQL: Loki (storage), Grafana (UI),
+# Alloy (collector), docker-events (container die/oom events).
 # Deployed as the Dokploy Compose service "logging" (project "Internship 2026", environment "shared").
 # Source: this file in GitHub (ops, main). A push that changes logging/** redeploys it automatically,
 # so never edit the compose in the Dokploy UI. Secrets (GRAFANA_*) live in the Dokploy Environment.
 #
-# - Alloy reads the Docker logs of the backend containers ONLY (names <env>-<service>-…, e.g.
-#   staging-wallet-core-zpj2hs.1…) and sends them to Loki with the labels env, service, level
-#   (taken from the JSON log line; env/service fall back to the container name).
+# - Alloy reads the Docker logs of our containers ONLY and sends them to Loki:
+#   - backends (names <env>-<service>-…, e.g. staging-wallet-core-zpj2hs.1…): labels env, service, level
+#     taken from the JSON log line; env/service fall back to the container name;
+#   - shared Redis/MySQL (names internship-<redis|mysql>-…): env="shared", service="redis"|"mysql" from the
+#     name; plain-text lines, so no level;
+#   - docker-events: one JSON line per die/oom event of those containers (action, exitCode), labelled with
+#     the env/service of the container it is about, so it shows up next to that container's logs.
 # - Loki keeps 14 days on the local filesystem (volume loki-data) and is not exposed publicly.
 # - Grafana: https://logs.wallet.shatori.com (Dokploy domain → service grafana, port 3000).
 #   Anonymous access and sign-up are off. GRAFANA_ADMIN_PASSWORD comes from the Dokploy
@@ -91,7 +96,8 @@ services:
       - source: alloy-config
         target: /etc/alloy/config.alloy
     volumes:
-      # Read access to the Docker API (container list + logs). Only the backend containers are kept.
+      # Docker API for the container list + logs; only our containers are kept (see alloy-config).
+      # `:ro` protects the socket file, not the API: whoever runs code here could control Docker.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
     networks: [logging]
