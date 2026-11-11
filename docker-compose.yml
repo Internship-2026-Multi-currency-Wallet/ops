@@ -107,6 +107,7 @@ services:
       PORT: 3000
       EMAIL_TRANSPORT: smtp
       SMTP_URL: smtp://mailpit:1025
+      BACKOFFICE_URL: ${BACKOFFICE_URL:-http://back-office.local.test}
       DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/wallet_core
     ports:
       - '${WALLET_CORE_PORT:-3000}:3000'

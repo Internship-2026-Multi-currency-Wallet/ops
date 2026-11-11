@@ -283,7 +283,9 @@ metrics stack see [Logging and metrics](#logging-and-metrics).
 - **Local emails**: Mailpit starts with `./dev.sh up`. Open <http://localhost:8025> — every email a service sends is
   there; nothing leaves your machine. SMTP is `localhost:1025` (`smtp://mailpit:1025` from a container, already set
   for `wallet-core`). Ports can be changed with `MAILPIT_SMTP_PORT` / `MAILPIT_UI_PORT` in `.env`. Emails are kept
-  until Mailpit is restarted.
+  until Mailpit is restarted. The back office link in staff emails comes from `BACKOFFICE_URL`: `wallet-core` in Docker
+  runs with `NODE_ENV=production` and refuses `localhost` there, so it is `http://back-office.local.test` and the link
+  does not open; set `BACKOFFICE_URL` in `.env` to a real host name for your machine if you need it to.
 - **Check a deployed environment**: send a test email to a Gmail address and make sure it lands in _Inbox_, not
   _Spam_ (Gmail → _Show original_ should say `SPF: PASS`, `DKIM: PASS`, `DMARC: PASS`). Resend → _Emails_ shows
   delivery status.
