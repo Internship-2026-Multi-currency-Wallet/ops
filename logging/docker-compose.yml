@@ -10,7 +10,8 @@
 #   - shared Redis/MySQL (names internship-<redis|mysql>-…): env="shared", service="redis"|"mysql" from the
 #     name; plain-text lines, so no level;
 #   - docker-events: one JSON line per die/oom event of those containers (action, exitCode), labelled with
-#     the env/service of the container it is about, so it shows up next to that container's logs.
+#     the env/service of the container it is about, so it shows up next to that container's logs; level=error
+#     for oom and for any exit code except 0 and 143 (normal stop), level=info for those two.
 # - Loki keeps 14 days on the local filesystem (volume loki-data) and is not exposed publicly.
 # - Grafana: https://logs.wallet.shatori.com (Dokploy domain → service grafana, port 3000).
 #   Anonymous access and sign-up are off. GRAFANA_ADMIN_PASSWORD comes from the Dokploy
@@ -115,10 +116,14 @@ services:
     command:
       - >-
         docker events --filter type=container --filter event=die --filter event=oom
-        --format '{"time":{{json .TimeNano}},"action":{{json .Action}},"container":{{json .Actor.Attributes.name}},"exitCode":{{json (index .Actor.Attributes "exitCode")}}}'
+        --format '{"action":{{json .Action}},"container":{{json .Actor.Attributes.name}},"exitCode":{{json (index .Actor.Attributes "exitCode")}}}'
         | awk '/"container":"(internship-(redis|mysql)-[a-z0-9]{6}|(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+)\./ { print; fflush() }'
     environment:
       GOMEMLIMIT: 24MiB
+    # Alloy keeps only the container with this label: a generic compose service name such as "docker-events"
+    # could also match a container of another project on the server.
+    labels:
+      wallet.logging.role: docker-events
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [logging]
@@ -268,7 +273,7 @@ configs:
       discovery.relabel "events" {
         targets = discovery.docker.all.targets
         rule {
-          source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+          source_labels = ["__meta_docker_container_label_wallet_logging_role"]
           regex         = "docker-events"
           action        = "keep"
         }
@@ -283,11 +288,22 @@ configs:
       // An event gets the env/service of the container it is about, so it shows up next to that container's logs.
       loki.process "events" {
         stage.json {
-          expressions = { container = "container" }
+          expressions = { container = "container", action = "action", exit_code = "exitCode" }
         }
         stage.regex {
           source     = "container"
           expression = "^(?:internship-(?P<infra>redis|mysql)-|(?P<env>staging|kvitka-uat|wisla-uat)-(?P<service>wallet-core|rates-service|treasury-service)-)"
+        }
+        // Must run before the service/env templates: afterwards even a junk line has service="<no value>".
+        // A line that is not one of our events (e.g. a docker CLI error on stderr, which bypasses awk) matches
+        // no container name; without this it would get "<no value>" labels.
+        stage.template {
+          source   = "route"
+          template = "{{ if or .infra .service }}keep{{ else }}drop{{ end }}"
+        }
+        stage.drop {
+          source = "route"
+          value  = "drop"
         }
         stage.template {
           source   = "service"
@@ -297,8 +313,14 @@ configs:
           source   = "env"
           template = "{{ if .infra }}shared{{ else }}{{ .env }}{{ end }}"
         }
+        // 0 = clean exit, 143 = stopped with SIGTERM (normal restart or deploy); anything else is a problem,
+        // e.g. 137 = killed (including by the OOM killer), 1 = crash.
+        stage.template {
+          source   = "level"
+          template = `{{ if eq .action "oom" }}error{{ else if and (eq .action "die") (or (eq .exit_code "0") (eq .exit_code "143")) }}info{{ else }}error{{ end }}`
+        }
         stage.labels {
-          values = { env = "", service = "" }
+          values = { env = "", service = "", level = "" }
         }
         forward_to = [loki.write.local.receiver]
       }

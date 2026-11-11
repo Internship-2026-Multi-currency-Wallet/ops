@@ -298,9 +298,13 @@ docker-events (die/oom events, JSON) ────────┘  Docker API  in
     `level` from the JSON line;
   - the shared Redis and MySQL (`internship-<redis|mysql>-…`): `env="shared"`, `service="redis"` / `"mysql"` from
     the container name; their lines are plain text, so they have no `level`;
-  - `docker-events`, a small sidecar that prints one JSON line per `die` / `oom` event of those containers
-    (`action`, `exitCode`); Alloy gives each event the `env` / `service` of the container it is about, so
-    `{service="redis"}` shows Redis's own lines and "died with exit code 137" in one time-ordered list.
+  - `docker-events`, a small sidecar that prints one JSON line per `die` / `oom` event of those containers,
+    e.g. `{"action":"die","container":"internship-redis-…","exitCode":"137"}`; Alloy gives each event the `env` /
+    `service` of the container it is about, so `{service="redis"}` shows Redis's own lines and its die events in
+    one time-ordered list. Events also get `level`: `error` for `oom` and for any exit code except 0 and 143
+    (killed, crash), `info` for exit codes 0 and 143 (normal stop or restart); Redis/MySQL lines still have none.
+    Events are lost while the `docker-events` container itself is down (for example while it is recreated by a
+    deploy that changes it, or during a Docker daemon restart); there are no duplicates.
 
   Container names of other projects on the server never reach Loki (and are filtered out inside `docker-events`
   already). Loki is not published; Grafana is the only entry point.
