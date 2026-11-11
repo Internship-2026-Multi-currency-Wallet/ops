@@ -216,7 +216,8 @@
           "refId": "C",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "histogram_quantile(0.99, sum by (le, env, service) (rate(http_request_duration_seconds_bucket{env=~\"$env\", service=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "p99 {{env}} {{service}}"
+          "legendFormat": "p99 {{env}} {{service}}",
+          "exemplar": true
         }
       ],
       "fieldConfig": {
@@ -235,7 +236,8 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum by (env, service, code) (rate(graphql_errors_total{env=~\"$env\", service=~\"$service\"}[$__rate_interval]))",
-          "legendFormat": "{{env}} {{service}} {{code}}"
+          "legendFormat": "{{env}} {{service}} {{code}}",
+          "exemplar": true
         }
       ],
       "fieldConfig": {
