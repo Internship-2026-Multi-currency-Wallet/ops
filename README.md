@@ -220,9 +220,14 @@ Each app repository has a thin `.github/workflows/deploy.yml` (on push to `main`
      `ghcr.io/internship-2026-multi-currency-wallet/<repo>` as `<env>-<sha>` and `<env>-latest`;
   3. point the Dokploy application `<repo>` in environment `<env>` of project _Internship 2026_ at `<env>-<sha>` and
      redeploy it through the Dokploy API (looked up by name, no ids in Git);
-  4. wait for the Dokploy deployment, then poll `https://<env>-<service>.wallet.shatori.com/health` until it is `ok`
-     **and** reports the new SHA as `version`; otherwise the job fails. Docker Swarm starts the new container first
-     and rolls back automatically if it never becomes healthy.
+  4. wait for the Dokploy deployment, then poll `https://<env>-<service>.wallet.shatori.com/health` (every 5 s, up
+     to 5 minutes) until it answers HTTP 200 with a JSON object whose `status` is `ok` or `degraded` **and** whose
+     `version` is the new SHA (not required with `check-version: false`); otherwise the job fails. `degraded`
+     means the new version runs but a dependency (e.g. Redis) is down: the deploy succeeds with a warning in the
+     job summary. Redirects, other HTTP statuses (e.g. 503), other bodies and connection errors are retried,
+     never accepted. Docker Swarm starts the new container first and rolls back automatically if it never becomes
+     healthy. Tests of this gate: `python3 -m unittest discover -s tests -v` (needs bash, curl, jq, PyYAML;
+     Ubuntu: `sudo apt-get install -y curl jq python3-yaml`).
 - **`deploy-pages.yml`** (client-web, back-office): resolve the environment, `npm ci && npm run build` with that
   environment's `VITE_APP_ENV`, `VITE_CLIENT` and (staging only) `VITE_DEV_USER`, upload `dist/` with
   `wrangler pages deploy` to the Pages project `<app>-<env>` (e.g. `client-web-staging`). The same job creates the
