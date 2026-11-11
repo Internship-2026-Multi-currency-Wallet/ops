@@ -162,10 +162,11 @@ configs:
 
   alloy-config:
     content: |
-      // Docker logs of the internship backends only → Loki.
+      // Docker logs of the internship backends and the shared Redis/MySQL → Loki.
+      // 5s: a container that crashes faster than one refresh would never be tailed (its last lines lost).
       discovery.docker "all" {
         host             = "unix:///var/run/docker.sock"
-        refresh_interval = "15s"
+        refresh_interval = "5s"
       }
 
       // Keep only <env>-<service>-<suffix>.<task> containers (Dokploy swarm tasks of the backends).
@@ -205,6 +206,34 @@ configs:
         stage.labels {
           values = { level = "", env = "", service = "" }
         }
+        forward_to = [loki.write.local.receiver]
+      }
+
+      // Shared Redis and MySQL (Dokploy services internship-<redis|mysql>-<suffix>, environment "shared").
+      // A separate pipeline, so the backends' read positions stay untouched. The lines are plain text, not JSON:
+      // labels come from the container name only and there is no level.
+      discovery.relabel "infra" {
+        targets = discovery.docker.all.targets
+        rule {
+          source_labels = ["__meta_docker_container_name"]
+          regex         = "/internship-(redis|mysql)-[a-z0-9]{6}\\..*"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_docker_container_name"]
+          regex         = "/internship-(redis|mysql)-.*"
+          target_label  = "service"
+          replacement   = "$$1"
+        }
+        rule {
+          target_label = "env"
+          replacement  = "shared"
+        }
+      }
+
+      loki.source.docker "infra" {
+        host       = "unix:///var/run/docker.sock"
+        targets    = discovery.relabel.infra.output
         forward_to = [loki.write.local.receiver]
       }
 
