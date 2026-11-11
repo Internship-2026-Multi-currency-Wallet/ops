@@ -281,9 +281,9 @@ print_info() {
   printf '   grafana, prometheus: ./dev.sh up observability, Grafana login admin / admin)\n'
 
   printf '\nEnvironment for a service run on the host (npm run start:dev). The service defaults already match;\n'
-  printf 'only DEV_AUTH=true (and JWT_SECRET next to backends in Docker) must be set, e.g. in its .env:\n'
+  printf 'only DEV_AUTH=true (and JWT_SECRET, equal to the one of the backends in Docker) must be set, e.g. in its .env:\n'
   printf '  APP_ENV=%s CLIENT=%s DEV_AUTH=true\n' "$APP_ENV" "$CLIENT"
-  printf '  JWT_SECRET=%s   (same as the backends in Docker, so their tokens verify)\n' "$JWT_SECRET"
+  printf '  JWT_SECRET=%s\n' "$JWT_SECRET"
   printf '  REDIS_URL=redis://localhost:%s\n' "$REDIS_PORT"
   printf '  EMAIL_TRANSPORT=smtp SMTP_URL=smtp://localhost:%s   (emails: http://localhost:%s)\n' "$MAILPIT_SMTP_PORT" "$MAILPIT_UI_PORT"
   for s in wallet-core rates-service treasury-service; do
@@ -326,7 +326,7 @@ Examples
   ./dev.sh up                                  # work on any service with npm run start:dev
   ./dev.sh up rates-service treasury-service   # plus two backends in Docker
   ./dev.sh up all                              # the whole system
-  ./dev.sh up observability wallet-core        # + dashboards on http://localhost:$GRAFANA_PORT
+  ./dev.sh up observability wallet-core
   ./dev.sh logs rates-service
   ./dev.sh down
 EOF

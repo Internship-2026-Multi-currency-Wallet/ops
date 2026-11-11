@@ -45,7 +45,7 @@ cd ops
 ./dev.sh up rates-service                     # + rates-service in a container
 ./dev.sh up rates-service treasury-service    # + several services
 ./dev.sh up all                               # the whole system (what `docker compose up` used to do)
-./dev.sh up observability wallet-core         # + logs and metrics in Grafana (see Logging and metrics)
+./dev.sh up observability wallet-core
 ```
 
 | Command                                  | What it does                                                                                         |
@@ -391,7 +391,7 @@ Networks: `logging` (internal to the project) has all five services. `alloy-metr
 ### Locally
 
 ```sh
-./dev.sh up observability wallet-core     # MySQL + Redis + wallet-core + the whole logging and metrics stack
+./dev.sh up observability wallet-core
 ```
 
 Grafana: <http://localhost:3300> (`admin` / `admin`), Prometheus: <http://localhost:9090>. It is the server's
