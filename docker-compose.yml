@@ -28,6 +28,7 @@ x-backend-env: &backend-env
   REDIS_URL: redis://redis:6379
   CLIENT: ${CLIENT:-demo}
   DEV_AUTH: ${DEV_AUTH:-true}
+  JWT_SECRET: ${JWT_SECRET:-local-docker-jwt-secret-not-for-servers-01}
   CORS_ORIGINS: http://localhost:${CLIENT_WEB_PORT:-8080},http://localhost:${BACK_OFFICE_PORT:-8081},http://localhost:5173,http://localhost:5174
   # Base URLs of the other backends (container or host process alike, see the header).
   WALLET_CORE_URL: http://host.docker.internal:${WALLET_CORE_PORT:-3000}
@@ -106,6 +107,7 @@ services:
       PORT: 3000
       EMAIL_TRANSPORT: smtp
       SMTP_URL: smtp://mailpit:1025
+      BACKOFFICE_URL: ${BACKOFFICE_URL:-http://back-office.local.test}
       DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/wallet_core
     ports:
       - '${WALLET_CORE_PORT:-3000}:3000'

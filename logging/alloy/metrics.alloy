@@ -1,0 +1,273 @@
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
+
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+}
+
+discovery.relabel "backends" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+\\..*"
+    target_label  = "env"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+\\..*"
+    target_label  = "service"
+    replacement   = "$2"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "wallet;(wallet-core|rates-service|treasury-service)"
+    target_label  = "env"
+    replacement   = "local"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "wallet;(wallet-core|rates-service|treasury-service)"
+    target_label  = "service"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["service"]
+    regex         = ".+"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_network_name"]
+    regex         = "dokploy-network|wallet_default"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_network_ip"]
+    target_label  = "__address__"
+    replacement   = "$1:9464"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.+)"
+    target_label  = "instance"
+  }
+}
+
+prometheus.scrape "backends" {
+  job_name        = "backends"
+  targets         = discovery.relabel.backends.output
+  scrape_interval = "15s"
+  honor_labels    = true
+  forward_to      = [prometheus.remote_write.local.receiver]
+}
+
+prometheus.exporter.unix "host" {
+  procfs_path    = "/host/proc"
+  sysfs_path     = "/sys"
+  rootfs_path    = "/rootfs"
+  set_collectors = ["cpu", "meminfo", "loadavg", "filesystem"]
+}
+
+prometheus.exporter.unix "host_network" {
+  procfs_path    = "/host/proc/1"
+  set_collectors = ["netdev"]
+
+  netdev {
+    device_include = "^(eth|en).*"
+  }
+}
+
+prometheus.scrape "host" {
+  job_name        = "host"
+  targets         = prometheus.exporter.unix.host.targets
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.host.receiver]
+}
+
+prometheus.scrape "host_network" {
+  job_name        = "host_network"
+  targets         = prometheus.exporter.unix.host_network.targets
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.host.receiver]
+}
+
+prometheus.relabel "host" {
+  rule {
+    source_labels = ["__name__"]
+    regex         = "node_cpu_seconds_total|node_load(1|5|15)|node_memory_(MemTotal|MemAvailable)_bytes|node_filesystem_(size|avail)_bytes|node_network_(receive|transmit)_bytes_total"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["fstype"]
+    regex         = "|ext4|xfs|btrfs"
+    action        = "keep"
+  }
+
+  rule {
+    regex  = "instance"
+    action = "labeldrop"
+  }
+
+  forward_to = [prometheus.remote_write.local.receiver]
+}
+
+prometheus.exporter.cadvisor "containers" {
+  docker_only                  = true
+  store_container_labels       = false
+  allowlisted_container_labels = ["com.docker.compose.project", "com.docker.compose.service"]
+  enabled_metrics              = ["cpu", "memory"]
+}
+
+prometheus.scrape "containers" {
+  job_name        = "containers"
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.containers.receiver]
+}
+
+prometheus.relabel "containers" {
+  rule {
+    source_labels = ["__name__"]
+    regex         = "container_cpu_usage_seconds_total|container_memory_working_set_bytes|container_spec_memory_limit_bytes"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["name"]
+    regex         = "(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+\\..*"
+    target_label  = "env"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["name"]
+    regex         = "(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+\\..*"
+    target_label  = "service"
+    replacement   = "$2"
+  }
+
+  rule {
+    source_labels = ["container_label_com_docker_compose_project", "container_label_com_docker_compose_service"]
+    regex         = "wallet;(wallet-core|rates-service|treasury-service)"
+    target_label  = "env"
+    replacement   = "local"
+  }
+
+  rule {
+    source_labels = ["container_label_com_docker_compose_project", "container_label_com_docker_compose_service"]
+    regex         = "wallet;(wallet-core|rates-service|treasury-service)"
+    target_label  = "service"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["service"]
+    regex         = ".+"
+    action        = "keep"
+  }
+
+  rule {
+    regex  = "instance|container_label_com_docker_compose_(project|service)"
+    action = "labeldrop"
+  }
+
+  forward_to = [prometheus.remote_write.local.receiver]
+}
+
+prometheus.exporter.blackbox "public" {
+  config = "{ modules: { http_2xx: { prober: http, timeout: 5s } } }"
+
+  target {
+    name    = "staging-wallet-core"
+    address = "https://staging-wallet-core.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "staging", service = "wallet-core"}
+  }
+
+  target {
+    name    = "staging-rates-service"
+    address = "https://staging-rates.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "staging", service = "rates-service"}
+  }
+
+  target {
+    name    = "staging-treasury-service"
+    address = "https://staging-treasury.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "staging", service = "treasury-service"}
+  }
+
+  target {
+    name    = "kvitka-uat-wallet-core"
+    address = "https://kvitka-uat-wallet-core.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "kvitka-uat", service = "wallet-core"}
+  }
+
+  target {
+    name    = "kvitka-uat-rates-service"
+    address = "https://kvitka-uat-rates.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "kvitka-uat", service = "rates-service"}
+  }
+
+  target {
+    name    = "kvitka-uat-treasury-service"
+    address = "https://kvitka-uat-treasury.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "kvitka-uat", service = "treasury-service"}
+  }
+
+  target {
+    name    = "wisla-uat-wallet-core"
+    address = "https://wisla-uat-wallet-core.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "wisla-uat", service = "wallet-core"}
+  }
+
+  target {
+    name    = "wisla-uat-rates-service"
+    address = "https://wisla-uat-rates.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "wisla-uat", service = "rates-service"}
+  }
+
+  target {
+    name    = "wisla-uat-treasury-service"
+    address = "https://wisla-uat-treasury.wallet.shatori.com/health"
+    module  = "http_2xx"
+    labels  = {env = "wisla-uat", service = "treasury-service"}
+  }
+}
+
+prometheus.scrape "probes" {
+  job_name        = "probes"
+  targets         = prometheus.exporter.blackbox.public.targets
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.relabel.probes.receiver]
+}
+
+prometheus.relabel "probes" {
+  rule {
+    source_labels = ["__name__"]
+    regex         = "probe_success|probe_duration_seconds|probe_http_status_code"
+    action        = "keep"
+  }
+
+  forward_to = [prometheus.remote_write.local.receiver]
+}

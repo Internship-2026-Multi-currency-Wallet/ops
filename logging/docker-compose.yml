@@ -1,15 +1,6 @@
-# Centralized logging for the internship backends: Loki (storage), Grafana (UI), Alloy (collector).
 # Deployed as the Dokploy Compose service "logging" (project "Internship 2026", environment "shared").
 # Source: this file in GitHub (ops, main). A push that changes logging/** redeploys it automatically,
 # so never edit the compose in the Dokploy UI. Secrets (GRAFANA_*) live in the Dokploy Environment.
-#
-# - Alloy reads the Docker logs of the backend containers ONLY (names <env>-<service>-…, e.g.
-#   staging-wallet-core-zpj2hs.1…) and sends them to Loki with the labels env, service, level
-#   (taken from the JSON log line; env/service fall back to the container name).
-# - Loki keeps 14 days on the local filesystem (volume loki-data) and is not exposed publicly.
-# - Grafana: https://logs.wallet.shatori.com (Dokploy domain → service grafana, port 3000).
-#   Anonymous access and sign-up are off. GRAFANA_ADMIN_PASSWORD comes from the Dokploy
-#   environment of this service — never commit it.
 
 services:
   loki:
@@ -29,10 +20,41 @@ services:
         limits:
           memory: 256M
 
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=14d
+      - --storage.tsdb.retention.size=2GB
+      - --web.enable-remote-write-receiver
+      - --query.max-samples=5000000
+    environment:
+      GOMEMLIMIT: 200MiB
+    configs:
+      - source: prometheus-config
+        target: /etc/prometheus/prometheus.yml
+    volumes:
+      - prometheus-data:/prometheus
+    networks: [logging]
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:9090/-/ready']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   grafana:
     image: grafana/grafana:12.4.14
     restart: unless-stopped
-    depends_on: [loki]
+    depends_on:
+      loki: { condition: service_started }
+      prometheus: { condition: service_healthy }
     environment:
       GF_SERVER_ROOT_URL: https://logs.wallet.shatori.com
       GF_SECURITY_ADMIN_USER: admin
@@ -63,11 +85,15 @@ services:
       GOMEMLIMIT: 150MiB
     configs:
       - source: grafana-datasources
-        target: /etc/grafana/provisioning/datasources/loki.yaml
+        target: /etc/grafana/provisioning/datasources/datasources.yaml
       - source: grafana-dashboard-provider
         target: /etc/grafana/provisioning/dashboards/internship.yaml
       - source: grafana-dashboard-logs
         target: /etc/grafana/dashboards/logs.json
+      - source: grafana-dashboard-server
+        target: /etc/grafana/dashboards/server.json
+      - source: grafana-dashboard-services
+        target: /etc/grafana/dashboards/services.json
     volumes:
       - grafana-data:/var/lib/grafana
     networks: [logging]
@@ -88,7 +114,7 @@ services:
     environment:
       GOMEMLIMIT: 100MiB
     configs:
-      - source: alloy-config
+      - source: alloy-logs-config
         target: /etc/alloy/config.alloy
     volumes:
       # Read access to the Docker API (container list + logs). Only the backend containers are kept.
@@ -100,14 +126,56 @@ services:
         limits:
           memory: 128M
 
+  alloy-metrics:
+    image: grafana/alloy:v1.21.3
+    restart: unless-stopped
+    depends_on:
+      prometheus: { condition: service_healthy }
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=127.0.0.1:12345
+      - /etc/alloy/config.alloy
+    environment:
+      GOMEMLIMIT: 150MiB
+    configs:
+      - source: alloy-metrics-config
+        target: /etc/alloy/config.alloy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/sys:ro
+      - /:/rootfs:ro
+      - alloy-metrics-data:/var/lib/alloy/data
+    networks: [logging, dokploy-network]
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - 'exec 3<>/dev/tcp/127.0.0.1/12345 && printf "GET /-/ready HTTP/1.0\r\n\r\n" >&3 && grep -q "Alloy is ready" <&3'
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
 # Loki is reachable only on this internal network (Grafana is also attached to dokploy-network by Dokploy).
 networks:
   logging: {}
+  dokploy-network:
+    external: true
 
 volumes:
   loki-data:
+  prometheus-data:
   grafana-data:
   alloy-data:
+  alloy-metrics-data:
 
 configs:
   loki-config:
@@ -160,59 +228,15 @@ configs:
       analytics:
         reporting_enabled: false
 
-  alloy-config:
+  prometheus-config:
     content: |
-      // Docker logs of the internship backends only → Loki.
-      discovery.docker "all" {
-        host             = "unix:///var/run/docker.sock"
-        refresh_interval = "15s"
-      }
+      global: {}
 
-      // Keep only <env>-<service>-<suffix>.<task> containers (Dokploy swarm tasks of the backends).
-      discovery.relabel "backends" {
-        targets = discovery.docker.all.targets
-        rule {
-          source_labels = ["__meta_docker_container_name"]
-          regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+\\..*"
-          action        = "keep"
-        }
-        rule {
-          source_labels = ["__meta_docker_container_name"]
-          regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-.*"
-          target_label  = "env"
-          replacement   = "$$1"
-        }
-        rule {
-          source_labels = ["__meta_docker_container_name"]
-          regex         = "/(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-.*"
-          target_label  = "service"
-          replacement   = "$$2"
-        }
-      }
+  alloy-logs-config:
+    file: ./alloy/logs.alloy
 
-      loki.source.docker "backends" {
-        host             = "unix:///var/run/docker.sock"
-        targets          = discovery.relabel.backends.output
-        refresh_interval = "15s"
-        forward_to       = [loki.process.json.receiver]
-      }
-
-      // Labels from the JSON line: level, env (appEnv), service. requestId stays in the line (high cardinality).
-      loki.process "json" {
-        stage.json {
-          expressions = { level = "level", env = "appEnv", service = "service" }
-        }
-        stage.labels {
-          values = { level = "", env = "", service = "" }
-        }
-        forward_to = [loki.write.local.receiver]
-      }
-
-      loki.write "local" {
-        endpoint {
-          url = "http://loki:3100/loki/api/v1/push"
-        }
-      }
+  alloy-metrics-config:
+    file: ./alloy/metrics.alloy
 
   grafana-datasources:
     content: |
@@ -227,6 +251,15 @@ configs:
           editable: false
           jsonData:
             maxLines: 2000
+        - name: Prometheus
+          uid: prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: false
+          editable: false
+          jsonData:
+            timeInterval: 15s
 
   grafana-dashboard-provider:
     content: |
@@ -241,228 +274,10 @@ configs:
             path: /etc/grafana/dashboards
 
   grafana-dashboard-logs:
-    content: |
-          {
-            "uid": "internship-logs",
-            "title": "Logs",
-            "tags": [
-              "internship"
-            ],
-            "timezone": "browser",
-            "schemaVersion": 39,
-            "version": 1,
-            "refresh": "30s",
-            "time": {
-              "from": "now-1h",
-              "to": "now"
-            },
-            "templating": {
-              "list": [
-                {
-                  "name": "env",
-                  "label": "Environment",
-                  "type": "query",
-                  "datasource": {
-                    "type": "loki",
-                    "uid": "loki"
-                  },
-                  "query": {
-                    "label": "env",
-                    "stream": "",
-                    "type": 1
-                  },
-                  "definition": "label_values(env)",
-                  "includeAll": true,
-                  "multi": true,
-                  "current": {
-                    "text": "All",
-                    "value": "$$__all"
-                  },
-                  "allValue": ".+",
-                  "refresh": 2
-                },
-                {
-                  "name": "service",
-                  "label": "Service",
-                  "type": "query",
-                  "datasource": {
-                    "type": "loki",
-                    "uid": "loki"
-                  },
-                  "query": {
-                    "label": "service",
-                    "stream": "",
-                    "type": 1
-                  },
-                  "definition": "label_values(service)",
-                  "includeAll": true,
-                  "multi": true,
-                  "current": {
-                    "text": "All",
-                    "value": "$$__all"
-                  },
-                  "allValue": ".+",
-                  "refresh": 2
-                },
-                {
-                  "name": "level",
-                  "label": "Level",
-                  "type": "custom",
-                  "query": "error,warn,info,debug",
-                  "includeAll": true,
-                  "multi": true,
-                  "current": {
-                    "text": "All",
-                    "value": "$$__all"
-                  },
-                  "allValue": ".*",
-                  "options": []
-                },
-                {
-                  "name": "requestId",
-                  "label": "requestId",
-                  "type": "textbox",
-                  "query": "",
-                  "current": {
-                    "text": "",
-                    "value": ""
-                  }
-                },
-                {
-                  "name": "search",
-                  "label": "Search text",
-                  "type": "textbox",
-                  "query": "",
-                  "current": {
-                    "text": "",
-                    "value": ""
-                  }
-                }
-              ]
-            },
-            "panels": [
-              {
-                "id": 1,
-                "type": "stat",
-                "title": "Errors (selected range)",
-                "gridPos": {
-                  "x": 0,
-                  "y": 0,
-                  "w": 6,
-                  "h": 6
-                },
-                "datasource": {
-                  "type": "loki",
-                  "uid": "loki"
-                },
-                "targets": [
-                  {
-                    "refId": "A",
-                    "datasource": {
-                      "type": "loki",
-                      "uid": "loki"
-                    },
-                    "expr": "sum(count_over_time({env=~\"$$env\", service=~\"$$service\", level=\"error\"} [$$__range]))",
-                    "queryType": "range"
-                  }
-                ],
-                "options": {
-                  "reduceOptions": {
-                    "calcs": [
-                      "lastNotNull"
-                    ]
-                  },
-                  "colorMode": "background"
-                },
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "short",
-                    "thresholds": {
-                      "mode": "absolute",
-                      "steps": [
-                        {
-                          "color": "green",
-                          "value": null
-                        },
-                        {
-                          "color": "red",
-                          "value": 1
-                        }
-                      ]
-                    }
-                  },
-                  "overrides": []
-                }
-              },
-              {
-                "id": 2,
-                "type": "timeseries",
-                "title": "Errors and warnings per service",
-                "gridPos": {
-                  "x": 6,
-                  "y": 0,
-                  "w": 18,
-                  "h": 6
-                },
-                "datasource": {
-                  "type": "loki",
-                  "uid": "loki"
-                },
-                "targets": [
-                  {
-                    "refId": "A",
-                    "datasource": {
-                      "type": "loki",
-                      "uid": "loki"
-                    },
-                    "expr": "sum by (env, service, level) (count_over_time({env=~\"$$env\", service=~\"$$service\", level=~\"error|warn\"} [$$__interval]))",
-                    "queryType": "range",
-                    "legendFormat": "{{env}} {{service}} {{level}}"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "custom": {
-                      "drawStyle": "bars",
-                      "fillOpacity": 60
-                    }
-                  },
-                  "overrides": []
-                }
-              },
-              {
-                "id": 3,
-                "type": "logs",
-                "title": "Logs",
-                "gridPos": {
-                  "x": 0,
-                  "y": 6,
-                  "w": 24,
-                  "h": 20
-                },
-                "datasource": {
-                  "type": "loki",
-                  "uid": "loki"
-                },
-                "targets": [
-                  {
-                    "refId": "A",
-                    "datasource": {
-                      "type": "loki",
-                      "uid": "loki"
-                    },
-                    "expr": "{env=~\"$$env\", service=~\"$$service\", level=~\"$$level\"} |= \"$$requestId\" |= \"$$search\"",
-                    "queryType": "range"
-                  }
-                ],
-                "options": {
-                  "showTime": true,
-                  "wrapLogMessage": true,
-                  "prettifyLogMessage": false,
-                  "enableLogDetails": true,
-                  "sortOrder": "Descending",
-                  "dedupStrategy": "none"
-                }
-              }
-            ]
-          }
+    file: ./grafana/dashboards/logs.json
+
+  grafana-dashboard-server:
+    file: ./grafana/dashboards/server.json
+
+  grafana-dashboard-services:
+    file: ./grafana/dashboards/services.json
