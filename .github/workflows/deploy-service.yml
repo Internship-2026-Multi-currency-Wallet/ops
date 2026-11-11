@@ -204,16 +204,40 @@ jobs:
         run: |
           set +e -uo pipefail # keep polling when curl fails (bash -e is the default)
           for i in $(seq 1 60); do
-            body="$(curl -sS --max-time 10 "$HEALTH_URL")"
-            code=$?
-            if [ $code -eq 0 ] && echo "$body" | jq -e '.status == "ok"' > /dev/null 2>&1; then
-              if [ "$CHECK_VERSION" != true ] || echo "$body" | jq -e --arg v "$GITHUB_SHA" '.version == $v' > /dev/null; then
+            # No -f/-L: curl fails only on transport errors; the HTTP status is the last line.
+            response="$(curl -sS --max-time 10 -w '\n%{http_code}' "$HEALTH_URL")"
+            curl_exit=$?
+            http_code="${response##*$'\n'}"
+            body="${response%$'\n'*}"
+            if [ $curl_exit -ne 0 ]; then
+              verdict="no response (curl exit $curl_exit)"
+            elif [ "$http_code" != 200 ]; then
+              verdict="HTTP $http_code"
+            else
+              verdict="$(jq -rs --arg v "$GITHUB_SHA" --arg check "$CHECK_VERSION" '
+                if length != 1 or (.[0] | type) != "object" then "body is not one JSON object"
+                else .[0] |
+                  if .status != "ok" and .status != "degraded" then "status \(.status | tojson)"
+                  elif $check == "true" and .version != $v then "version \(.version | tojson)"
+                  else "accepted:\(.status)" end
+                end' <<< "$body" 2> /dev/null)" || verdict="body is not valid JSON"
+            fi
+            case "$verdict" in
+              accepted:*)
                 echo "Healthy: $body"
                 echo "Healthy: \`$body\`" >> "$GITHUB_STEP_SUMMARY"
+                if [ "$verdict" = accepted:degraded ]; then
+                  echo "::warning title=Deployed with degraded health::$HEALTH_URL reports status \"degraded\": the new version runs, but a dependency is unavailable"
+                  {
+                    echo
+                    echo '> [!WARNING]'
+                    echo '> Deployed with **degraded** health: the new version runs, but a dependency is unavailable. Check `/health` and the service logs.'
+                  } >> "$GITHUB_STEP_SUMMARY"
+                fi
                 exit 0
-              fi
-            fi
-            echo "Waiting ($i): ${body:-no response}"
+                ;;
+            esac
+            echo "Waiting ($i): $verdict: ${body:-no body}"
             sleep 5
           done
           echo "::error::$HEALTH_URL did not report a healthy new version within 5 minutes"
