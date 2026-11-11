@@ -56,7 +56,8 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "percent",
@@ -103,7 +104,8 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "short",
@@ -157,7 +159,8 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "bytes",
@@ -199,7 +202,8 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "percent",
@@ -267,7 +271,8 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "Bps",
@@ -303,7 +308,8 @@
           "links": [
             {
               "title": "Logs of ${__field.labels.service} at this moment",
-              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "percent",
@@ -331,7 +337,8 @@
           "links": [
             {
               "title": "Logs of ${__field.labels.service} at this moment",
-              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "bytes",
@@ -359,7 +366,8 @@
           "links": [
             {
               "title": "Logs of ${__field.labels.service} at this moment",
-              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "percent",

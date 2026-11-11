@@ -174,7 +174,8 @@
           "links": [
             {
               "title": "Logs of ${__field.labels.service} at this moment",
-              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "reqps",
@@ -202,7 +203,8 @@
           "links": [
             {
               "title": "Logs of ${__field.labels.service} at this moment",
-              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "percent",
@@ -360,7 +362,8 @@
           "links": [
             {
               "title": "Logs of ${__field.labels.service} at this moment",
-              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "s",
@@ -388,7 +391,8 @@
           "links": [
             {
               "title": "Logs of ${__field.labels.service} at this moment",
-              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000",
+              "oneClick": true
             }
           ],
           "unit": "bytes",
