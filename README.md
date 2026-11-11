@@ -220,8 +220,8 @@ Each app repository has a thin `.github/workflows/deploy.yml` (on push to `main`
      `ghcr.io/internship-2026-multi-currency-wallet/<repo>` as `<env>-<sha>` and `<env>-latest`;
   3. point the Dokploy application `<repo>` in environment `<env>` of project _Internship 2026_ at `<env>-<sha>` and
      redeploy it through the Dokploy API (looked up by name, no ids in Git);
-  4. wait for the Dokploy deployment, then poll `https://<env>-<service>.wallet.shatori.com/health` (every 5 s, up
-     to 5 minutes) until it answers HTTP 200 with a JSON object whose `status` is `ok` or `degraded` **and** whose
+  4. wait for the Dokploy deployment, then poll `https://<env>-<service>.wallet.shatori.com/health` (up to 60 attempts, with a 5 s pause after each failed
+     attempt and a 10 s timeout per request) until it answers HTTP 200 with a JSON object whose `status` is `ok` or `degraded` **and** whose
      `version` is the new SHA (not required with `check-version: false`); otherwise the job fails. `degraded`
      means the new version runs but a dependency (e.g. Redis) is down: the deploy succeeds with a warning in the
      job summary. Redirects, other HTTP statuses (e.g. 503), other bodies and connection errors are retried,
