@@ -73,6 +73,12 @@
       },
       "fieldConfig": {
         "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
           "mappings": [
             {
               "type": "value",
@@ -115,6 +121,12 @@
       },
       "fieldConfig": {
         "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
           "mappings": [
             {
               "type": "value",
@@ -158,7 +170,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "reqps",
+          "min": 0
+        },
         "overrides": []
       }
     },
@@ -178,6 +199,12 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
           "unit": "percent",
           "min": 0,
           "max": 100,
@@ -221,7 +248,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "s",
+          "min": 0
+        },
         "overrides": []
       }
     },
@@ -241,7 +277,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "reqps",
+          "min": 0
+        },
         "overrides": []
       }
     },
@@ -311,7 +356,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "s",
+          "min": 0
+        },
         "overrides": []
       }
     },
@@ -330,7 +384,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "bytes",
+          "min": 0
+        },
         "overrides": []
       }
     },
@@ -356,6 +419,12 @@
       },
       "fieldConfig": {
         "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
           "unit": "short",
           "thresholds": {
             "mode": "absolute",

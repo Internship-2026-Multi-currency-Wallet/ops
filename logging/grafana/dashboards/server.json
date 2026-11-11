@@ -52,7 +52,17 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0, "max": 100 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs at this moment",
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
         "overrides": []
       }
     },
@@ -89,7 +99,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs at this moment",
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "short",
+          "min": 0
+        },
         "overrides": [
           {
             "matcher": { "id": "byName", "options": "CPUs" },
@@ -134,7 +153,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs at this moment",
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "bytes",
+          "min": 0
+        },
         "overrides": [
           {
             "matcher": { "id": "byName", "options": "Total" },
@@ -167,7 +195,17 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0, "max": 100 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs at this moment",
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
         "overrides": []
       }
     },
@@ -192,7 +230,15 @@
         "textMode": "value_and_name"
       },
       "fieldConfig": {
-        "defaults": { "unit": "bytes" },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs at this moment",
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "bytes"
+        },
         "overrides": []
       }
     },
@@ -217,7 +263,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "Bps", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs at this moment",
+              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "Bps",
+          "min": 0
+        },
         "overrides": []
       }
     },
@@ -244,7 +299,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "percent",
+          "min": 0
+        },
         "overrides": []
       }
     },
@@ -263,7 +327,16 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "min": 0 },
+        "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
+          "unit": "bytes",
+          "min": 0
+        },
         "overrides": []
       }
     },
@@ -283,6 +356,12 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "links": [
+            {
+              "title": "Logs of ${__field.labels.service} at this moment",
+              "url": "/d/internship-logs/logs?var-env=${__field.labels.env}&var-service=${__field.labels.service}&time=${__value.time}&time.window=300000"
+            }
+          ],
           "unit": "percent",
           "min": 0,
           "max": 100,
