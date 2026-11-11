@@ -225,19 +225,14 @@ cmd_build() {
 }
 
 cmd_logs() {
-  local observability=0 s
+  local s
   for s in "$@"; do
-    case "$s" in
-      -*) ;;
-      observability) observability=1 ;;
-      *) is_known "$s" || die "unknown service '$s'. Known: $INFRA $SERVICES observability." ;;
-    esac
+    if [ "$s" = observability ]; then
+      [ "$#" -eq 1 ] || die "follow the observability stack on its own: ./dev.sh logs observability"
+      compose_observability logs -f --tail 200
+      return
+    fi
   done
-  if [ "$observability" -eq 1 ]; then
-    [ "$#" -eq 1 ] || die "follow the observability stack on its own: ./dev.sh logs observability"
-    compose_observability logs -f --tail 200
-    return
-  fi
   compose_all logs -f --tail 200 "$@"
 }
 
