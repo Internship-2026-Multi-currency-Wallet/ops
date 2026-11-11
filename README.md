@@ -264,7 +264,8 @@ The backends apply their migrations on start (container command `npm run migrate
 | PayGate secrets        | Dokploy → `paygate` → _Environment_: `PAYGATE_ADMIN_PASSWORD`, `PAYGATE_MERCHANT_<ID>_API_KEY` / `_WEBHOOK_SECRET` (ids `STAGING`, `KVITKA_UAT`, `WISLA_UAT`); config file mount `/etc/paygate/config.toml`, volume `paygate-data`                                                                   |
 | GitHub secrets         | Repository secrets `DOKPLOY_URL`, `DOKPLOY_TOKEN` (backends, paygate); organization secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (frontends, ops)                                                                                                                                         |
 
-Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis and PayGate 64 MB; logging and
+Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis 256 MB (reservation 64 MB), PayGate
+64 MB; logging and
 metrics stack see [Logging and metrics](#logging-and-metrics).
 
 ## Email
@@ -298,8 +299,9 @@ metrics stack see [Logging and metrics](#logging-and-metrics).
 ## Logging and metrics
 
 ```
-backend stdout (Docker API) ──────────────► alloy ──────────────────────────────► Loki (14 days) ──────┐
-                                                                                                       ▼
+backend stdout (Docker API) ────────────────┐
+shared Redis / MySQL stdout (Docker API) ───┼──► alloy ───────────────────────────► Loki (14 days) ──────┐
+docker-events: die / oom events (JSON) ─────┘                                                          ▼
 backends /metrics :9464 (dokploy-network) ──┐                                                       Grafana
 host CPU / RAM / disk / network ────────────┤                                                          ▲
 CPU / memory per backend container ─────────┼──► alloy-metrics ──remote write──► Prometheus (14 days) ─┘
@@ -310,21 +312,35 @@ public https://<env>-<service>…/health ─────┘    (every 15 s)
   `context`, `requestId`; an access line per HTTP request; secrets redacted. Metrics with `prom-client` on
   `GET /metrics`, port `9464`, a separate listener that never gets a domain. How to log, which metrics exist, how to
   read the dashboards and add a metric: the handbook's `logging.md` and `metrics.md`.
-- **Stack**: the Dokploy Compose service `logging` (environment `shared`) runs Loki, Prometheus, Grafana and two
-  Alloys from [`logging/`](logging) (no secrets in the files):
+- **Stack**: the Dokploy Compose service `logging` (environment `shared`) runs Loki, Prometheus, Grafana, two
+  Alloys and `docker-events` from [`logging/`](logging) (no secrets in the files):
 
   | File                                                           | What                                                       |
   | -------------------------------------------------------------- | ---------------------------------------------------------- |
   | [`docker-compose.yml`](logging/docker-compose.yml)             | Services, limits, Loki and Prometheus config, data sources |
-  | [`alloy/logs.alloy`](logging/alloy/logs.alloy)                 | `alloy`: Docker logs of the backends → Loki                |
+  | [`alloy/logs.alloy`](logging/alloy/logs.alloy)                 | `alloy`: Docker logs and die/oom events → Loki             |
   | [`alloy/metrics.alloy`](logging/alloy/metrics.alloy)           | `alloy-metrics`: everything that goes to Prometheus        |
   | [`grafana/dashboards/*.json`](logging/grafana/dashboards)      | Dashboards _Logs_, _Server_, _Services_                    |
   | [`docker-compose.local.yml`](logging/docker-compose.local.yml) | Local overrides for `./dev.sh up observability`            |
 
-- **Which containers**: both Alloys keep the backend containers **only**. On the server: names
+- **Which containers**: both Alloys keep the backend containers. On the server: names
   `<env>-<wallet-core|rates-service|treasury-service>-<suffix>.<task>`, `env` and `service` come from the name. Locally:
-  compose project `wallet` and service `wallet-core|rates-service|treasury-service`, `env=local`.
-- **Logs**: `alloy` reads the Docker logs and labels them `env`, `service`, `level` from the JSON line.
+  compose project `wallet` and service `wallet-core|rates-service|treasury-service`, `env=local`. `alloy` also keeps
+  the shared Redis and MySQL of the server (`internship-<redis|mysql>-<suffix>.<task>`) and the `docker-events`
+  container. Container names of other projects on the server never reach Loki.
+- **Logs**: `alloy` reads the Docker logs:
+  - backends: labels `env`, `service`, `level` from the JSON line;
+  - Redis and MySQL: `env="shared"`, `service="redis"` / `"mysql"` from the container name; their lines are plain text,
+    so they have no `level`;
+  - die/oom events: `docker-events` (a small sidecar, Alloy has no Docker events source) prints one JSON line per
+    `die` / `oom` event of those containers, e.g. `{"action":"die","container":"internship-redis-…","exitCode":"137"}`.
+    Each event gets the `env` / `service` of the container it is about, so `{service="redis"}` shows Redis's own lines
+    and its die events in one time-ordered list. `level` is `error` for `oom` and for any exit code except 0 and 143
+    (killed, crash), `info` for 0 and 143 (normal stop or restart). Events are lost while `docker-events` itself is
+    down (for example while a deploy recreates it, or during a Docker daemon restart); there are no duplicates. Its
+    healthcheck (event process alive, Docker answering) only shows `unhealthy` in Dokploy: Compose restarts the
+    container when it exits, not when it is unhealthy.
+    Server only: the local stack's Redis, MySQL and their events are not collected.
 - **Metrics**: `alloy-metrics` collects everything and pushes it to Prometheus with remote write; Prometheus scrapes
   nothing itself. Two Alloys so that a metrics problem (a bad config, an OOM in cAdvisor) never stops log collection;
   `alloy` keeps only `docker.sock`.
@@ -375,7 +391,8 @@ public https://<env>-<service>…/health ─────┘    (every 15 s)
 | `grafana`       | 256 MB          | 150 MiB      | Grafana 12 idles at ~190 MB, so 200 MB was too tight                |
 | `alloy`         | 128 MB          | 100 MiB      | Logs only                                                           |
 | `alloy-metrics` | 192 MB          | 150 MiB      | cAdvisor, node exporter, blackbox and the remote-write WAL          |
-| **Total**       | **1088 MB**     |              |                                                                     |
+| `docker-events` | 32 MB           | 24 MiB       | Docker CLI only; about 7 MiB in use                                 |
+| **Total**       | **1120 MB**     |              |                                                                     |
 
 Loki and Prometheus keep 14 days; Prometheus also stops at 2 GB (`--storage.tsdb.retention.size`), whichever comes
 first. Expected disk use of Prometheus: 1–2 GB.
@@ -390,7 +407,7 @@ first. Expected disk use of Prometheus: 1–2 GB.
 | 9464  | backends     | Containers on `dokploy-network` only: never published, no domain; Traefik routes only `:3000` |
 | 12345 | both Alloys  | Loopback inside each container                                                                |
 
-Networks: `logging` (internal to the project) has all five services. `alloy-metrics` is the only one that also joins
+Networks: `logging` (internal to the project) has all six services. `alloy-metrics` is the only one that also joins
 `dokploy-network`, to scrape the backends; locally the same attachment points at `wallet_default`.
 
 ### Locally

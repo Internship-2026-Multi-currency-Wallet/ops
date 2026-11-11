@@ -117,7 +117,7 @@ services:
       - source: alloy-logs-config
         target: /etc/alloy/config.alloy
     volumes:
-      # Read access to the Docker API (container list + logs). Only the backend containers are kept.
+      # `:ro` protects the socket file, not the Docker API: whoever runs code in this container could control Docker.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
     networks: [logging]
@@ -163,6 +163,38 @@ services:
       resources:
         limits:
           memory: 192M
+
+  # Alloy has no Docker events source. The name filter runs here, so other projects' container names never reach
+  # even this container's log (BusyBox grep has no --line-buffered, hence awk with fflush).
+  docker-events:
+    image: docker:28.5.2-cli
+    restart: unless-stopped
+    entrypoint: ['sh', '-c']
+    command:
+      - >-
+        docker events --filter type=container --filter event=die --filter event=oom
+        --format '{"action":{{json .Action}},"container":{{json .Actor.Attributes.name}},"exitCode":{{json (index .Actor.Attributes "exitCode")}}}'
+        | awk '/"container":"(internship-(redis|mysql)-[a-z0-9]{6}|(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+)\./ { print; fflush() }'
+    environment:
+      GOMEMLIMIT: 24MiB
+    # alloy keeps only the container with this label: a generic compose service name could match another project's.
+    labels:
+      wallet.logging.role: docker-events
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [logging]
+    # Shows in Dokploy when the event stream is gone or Docker does not answer; plain Compose does not restart an
+    # unhealthy container (an exited one is restarted by `restart`). `^` keeps pgrep from matching this check itself.
+    healthcheck:
+      test: ['CMD-SHELL', "pgrep -f '^docker events' > /dev/null && docker version > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 32M
 
 # Loki is reachable only on this internal network (Grafana is also attached to dokploy-network by Dokploy).
 networks:

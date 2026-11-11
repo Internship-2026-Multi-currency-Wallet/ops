@@ -1,6 +1,7 @@
+// 5s: a container that crashes faster than one refresh would never be tailed (its last lines lost).
 discovery.docker "containers" {
   host             = "unix:///var/run/docker.sock"
-  refresh_interval = "15s"
+  refresh_interval = "5s"
 }
 
 discovery.relabel "backends" {
@@ -55,6 +56,99 @@ loki.process "json" {
 
   stage.labels {
     values = {level = "", env = "", service = ""}
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+// Separate pipeline, so the backends' read positions stay untouched. Redis/MySQL lines are plain text, not JSON:
+// labels come from the container name only and there is no level.
+discovery.relabel "infra" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/internship-(redis|mysql)-[a-z0-9]{6}\\..*"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/internship-(redis|mysql)-.*"
+    target_label  = "service"
+    replacement   = "$1"
+  }
+
+  rule {
+    target_label = "env"
+    replacement  = "shared"
+  }
+}
+
+loki.source.docker "infra" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.infra.output
+  forward_to = [loki.write.local.receiver]
+}
+
+discovery.relabel "events" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_wallet_logging_role"]
+    regex         = "docker-events"
+    action        = "keep"
+  }
+}
+
+loki.source.docker "events" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.events.output
+  forward_to = [loki.process.events.receiver]
+}
+
+// An event gets the env/service of the container it is about, so it shows up next to that container's logs.
+loki.process "events" {
+  stage.json {
+    expressions = {container = "container", action = "action", exit_code = "exitCode"}
+  }
+
+  stage.regex {
+    source     = "container"
+    expression = "^(?:internship-(?P<infra>redis|mysql)-|(?P<env>staging|kvitka-uat|wisla-uat)-(?P<service>wallet-core|rates-service|treasury-service)-)"
+  }
+
+  // Before the service/env templates: after them even a junk line (e.g. a docker CLI error on stderr, which bypasses
+  // awk) would have service="<no value>" and get through.
+  stage.template {
+    source   = "route"
+    template = "{{ if or .infra .service }}keep{{ else }}drop{{ end }}"
+  }
+
+  stage.drop {
+    source = "route"
+    value  = "drop"
+  }
+
+  stage.template {
+    source   = "service"
+    template = "{{ if .infra }}{{ .infra }}{{ else }}{{ .service }}{{ end }}"
+  }
+
+  stage.template {
+    source   = "env"
+    template = "{{ if .infra }}shared{{ else }}{{ .env }}{{ end }}"
+  }
+
+  // 0 = clean exit, 143 = stopped with SIGTERM (normal restart or deploy); anything else is a problem,
+  // e.g. 137 = killed (including by the OOM killer), 1 = crash.
+  stage.template {
+    source   = "level"
+    template = `{{ if eq .action "oom" }}error{{ else if and (eq .action "die") (or (eq .exit_code "0") (eq .exit_code "143")) }}info{{ else }}error{{ end }}`
+  }
+
+  stage.labels {
+    values = {env = "", service = "", level = ""}
   }
 
   forward_to = [loki.write.local.receiver]
