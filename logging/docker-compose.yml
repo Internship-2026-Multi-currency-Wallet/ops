@@ -100,6 +100,27 @@ services:
         limits:
           memory: 128M
 
+  # die/oom events of our containers: Alloy has no Docker events source. Prints one JSON line per event;
+  # the name filter runs here, so other projects' container names never reach even this container's log.
+  docker-events:
+    image: docker:28.5.2-cli
+    restart: unless-stopped
+    entrypoint: ['sh', '-c']
+    command:
+      - >-
+        docker events --filter type=container --filter event=die --filter event=oom
+        --format '{"time":{{json .TimeNano}},"action":{{json .Action}},"container":{{json .Actor.Attributes.name}},"exitCode":{{json (index .Actor.Attributes "exitCode")}}}'
+        | awk '/"container":"(internship-(redis|mysql)-[a-z0-9]{6}|(staging|kvitka-uat|wisla-uat)-(wallet-core|rates-service|treasury-service)-[a-z0-9]+)\./ { print; fflush() }'
+    environment:
+      GOMEMLIMIT: 24MiB
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [logging]
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
 # Loki is reachable only on this internal network (Grafana is also attached to dokploy-network by Dokploy).
 networks:
   logging: {}
@@ -234,6 +255,45 @@ configs:
       loki.source.docker "infra" {
         host       = "unix:///var/run/docker.sock"
         targets    = discovery.relabel.infra.output
+        forward_to = [loki.write.local.receiver]
+      }
+
+      // Lines of the docker-events sidecar: one JSON line per die/oom event of our containers.
+      discovery.relabel "events" {
+        targets = discovery.docker.all.targets
+        rule {
+          source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+          regex         = "docker-events"
+          action        = "keep"
+        }
+      }
+
+      loki.source.docker "events" {
+        host       = "unix:///var/run/docker.sock"
+        targets    = discovery.relabel.events.output
+        forward_to = [loki.process.events.receiver]
+      }
+
+      // An event gets the env/service of the container it is about, so it shows up next to that container's logs.
+      loki.process "events" {
+        stage.json {
+          expressions = { container = "container" }
+        }
+        stage.regex {
+          source     = "container"
+          expression = "^(?:internship-(?P<infra>redis|mysql)-|(?P<env>staging|kvitka-uat|wisla-uat)-(?P<service>wallet-core|rates-service|treasury-service)-)"
+        }
+        stage.template {
+          source   = "service"
+          template = "{{ if .infra }}{{ .infra }}{{ else }}{{ .service }}{{ end }}"
+        }
+        stage.template {
+          source   = "env"
+          template = "{{ if .infra }}shared{{ else }}{{ .env }}{{ end }}"
+        }
+        stage.labels {
+          values = { env = "", service = "" }
+        }
         forward_to = [loki.write.local.receiver]
       }
 
