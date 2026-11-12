@@ -56,7 +56,7 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "url": "/d/internship-logs/logs?${env:queryparam}&time=${__value.time}&time.window=300000",
               "oneClick": true
             }
           ],
@@ -104,7 +104,7 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "url": "/d/internship-logs/logs?${env:queryparam}&time=${__value.time}&time.window=300000",
               "oneClick": true
             }
           ],
@@ -159,7 +159,7 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "url": "/d/internship-logs/logs?${env:queryparam}&time=${__value.time}&time.window=300000",
               "oneClick": true
             }
           ],
@@ -202,7 +202,7 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "url": "/d/internship-logs/logs?${env:queryparam}&time=${__value.time}&time.window=300000",
               "oneClick": true
             }
           ],
@@ -238,7 +238,7 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000"
+              "url": "/d/internship-logs/logs?${env:queryparam}&time=${__value.time}&time.window=300000"
             }
           ],
           "unit": "bytes"
@@ -271,7 +271,7 @@
           "links": [
             {
               "title": "Logs at this moment",
-              "url": "/d/internship-logs/logs?time=${__value.time}&time.window=300000",
+              "url": "/d/internship-logs/logs?${env:queryparam}&time=${__value.time}&time.window=300000",
               "oneClick": true
             }
           ],

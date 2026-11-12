@@ -297,7 +297,6 @@ configs:
           editable: false
           jsonData:
             timeInterval: 15s
-            # A dot (exemplar) on a graph links to the Logs dashboard for its request, 5 minutes around it.
             # $$$$: Compose and then Grafana provisioning each turn $$ into $ (both expand variables).
             exemplarTraceIdDestinations:
               - name: trace_id
