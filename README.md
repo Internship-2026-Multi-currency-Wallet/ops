@@ -313,11 +313,14 @@ the secret is required (it stays in wallet-core).
   `Wallet Internship`, a support email (set on the consent screen), scopes only `openid`, `email`, `profile`
   (non-sensitive, so no Google verification is needed). Publishing status: **Testing**, switching to _In production_
   later.
-  - _Testing_ (now): only listed test users can sign in (up to 100, each added by hand under _Test users_). Right for
-    development and demos by the team. Add every tester's Google account before they try.
-  - _In production_ (later): any Google account can sign in, with no list to maintain. Needed when people outside the
-    team test the UAT environments. Keep the scopes basic and do not upload a logo, otherwise Google asks for app
-    verification.
+  - _Testing_ (now): Google limits sign-in to the listed test users (up to 100, each added by hand under _Test
+    users_). **Exception:** an app that requests only the basic scopes `openid`, `email`, `profile` is not restricted
+    to that list, so the list does not keep outsiders out. If sign-in must be limited to the team, enforce an
+    allowlist in wallet-core instead of relying on the publishing status. Still add the team's Google accounts as test
+    users, so nothing breaks if the scopes ever grow.
+  - _In production_ (later): the same access without the testing warning and without the 100-user list. Switch when
+    people outside the team test the UAT environments. Keep the scopes basic and do not upload a logo, otherwise
+    Google asks for app verification.
 - **OAuth client**: one client of type _Web application_ named `Wallet Web Client` (_APIs & Services → Credentials_).
   Authorized JavaScript origins (exact origins: scheme + host + port, no path, no trailing slash) and, for the same
   hosts, _Authorized redirect URIs_ (exact: origin + the callback path of client-web, `/auth/google/callback`):
