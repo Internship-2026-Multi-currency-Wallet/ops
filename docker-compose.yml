@@ -108,6 +108,9 @@ services:
       EMAIL_TRANSPORT: smtp
       SMTP_URL: smtp://mailpit:1025
       BACKOFFICE_URL: ${BACKOFFICE_URL:-http://back-office.local.test}
+      # Empty = Google login not configured (wallet-core treats an empty value as not set).
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       DATABASE_URL: mysql://${MYSQL_USER:-wallet}:${MYSQL_PASSWORD:-wallet}@mysql:3306/wallet_core
     ports:
       - '${WALLET_CORE_PORT:-3000}:3000'
@@ -149,6 +152,8 @@ services:
         VITE_CLIENT: ${CLIENT:-demo}
         VITE_DEV_USER: ${CLIENT_WEB_DEV_USER:-1:wallet}
         VITE_USE_MOCKS: 'false'
+        # Public Client ID only; the secret must never reach a frontend build.
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     # No depends_on: the browser calls the backends on localhost, wherever they run.
     ports:
       - '${CLIENT_WEB_PORT:-8080}:8080'
