@@ -29,6 +29,7 @@ services:
       - --storage.tsdb.retention.time=14d
       - --storage.tsdb.retention.size=2GB
       - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
       - --query.max-samples=5000000
     environment:
       GOMEMLIMIT: 200MiB
@@ -263,6 +264,10 @@ configs:
   prometheus-config:
     content: |
       global: {}
+      storage:
+        exemplars:
+          # About 100 bytes each, so ~5 MB of the 256 MB limit.
+          max_exemplars: 50000
 
   alloy-logs-config:
     file: ./alloy/logs.alloy
@@ -292,6 +297,11 @@ configs:
           editable: false
           jsonData:
             timeInterval: 15s
+            # $$$$: Compose and then Grafana provisioning each turn $$ into $ (both expand variables).
+            exemplarTraceIdDestinations:
+              - name: trace_id
+                url: /d/internship-logs/logs?var-requestId=$$$${__value.raw}&time=$$$${__value.time}&time.window=300000
+                urlDisplayLabel: Logs of this request
 
   grafana-dashboard-provider:
     content: |

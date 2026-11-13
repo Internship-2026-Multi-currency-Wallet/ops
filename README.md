@@ -358,7 +358,13 @@ public https://<env>-<service>…/health ─────┘    (every 15 s)
   - _Logs_: filters env/service/level, error count, error/warning graph, logs panel, search by `requestId` or text;
   - _Server_ (filter env): host CPU, load, memory, disk, network; CPU and memory per backend container;
   - _Services_ (filters env, service): availability, requests per second, error rate, latency p50/p95/p99, GraphQL
-    errors by code, top 10 slowest operations, event-loop lag, heap, restarts.
+    errors by code, top 10 slowest operations, event-loop lag, heap, restarts. The dots on the latency and GraphQL
+    errors graphs are exemplars: the `requestId` of a recent request; clicking one opens _Logs_ for that request.
+
+  Every graph and stat panel of _Services_ and _Server_ has a data link to _Logs_, 5 minutes around the clicked point,
+  for the env and service of the series (host panels: all services of the selected env). It opens on one click,
+  except on the two graphs with exemplars: there it is in the pinned tooltip, so that a click on a dot still opens its
+  request.
 
   Anonymous access and sign-up are disabled.
 
