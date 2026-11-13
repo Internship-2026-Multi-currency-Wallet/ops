@@ -19,6 +19,7 @@
 # (an explicit record overrides the *.wallet wildcard that points to the VPS). Then wait until the
 # host serves exactly the index.html of this build, and check a deep link (SPA routing).
 #
+# Variables (organization): GOOGLE_CLIENT_ID is a variable, not a secret, because the frontend bundle exposes it.
 # Secrets (organization): CLOUDFLARE_API_TOKEN (Pages: Edit; DNS: Edit on the zone), CLOUDFLARE_ACCOUNT_ID.
 
 name: Deploy to Cloudflare Pages
@@ -106,6 +107,7 @@ jobs:
           VITE_CLIENT: ${{ steps.env.outputs.client }}
           VITE_DEV_USER: ${{ steps.env.outputs.dev_user }}
           VITE_USE_MOCKS: 'false'
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: |
           npm run build
           # Without a 404.html Pages serves index.html for unknown paths (SPA routing).
