@@ -21,6 +21,8 @@
 #
 # Variables (organization): GOOGLE_CLIENT_ID is a variable, not a secret, because the frontend bundle exposes it.
 # Secrets (organization): CLOUDFLARE_API_TOKEN (Pages: Edit; DNS: Edit on the zone), CLOUDFLARE_ACCOUNT_ID.
+# Optional organization secret SLACK_DEPLOYS_WEBHOOK_URL: the last step posts the result to #deploys.
+# Without it (or when Slack does not answer) the step only prints a warning.
 
 name: Deploy to Cloudflare Pages
 
@@ -55,6 +57,8 @@ on:
         required: true
       CLOUDFLARE_ACCOUNT_ID:
         required: true
+      SLACK_DEPLOYS_WEBHOOK_URL:
+        required: false
 
 jobs:
   deploy:
@@ -64,6 +68,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Record start time
+        id: start
+        run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Resolve environment
         id: env
         env:
@@ -218,3 +226,56 @@ jobs:
           done
           echo "::error::https://$HOST does not serve this build after 15 minutes"
           exit 1
+
+      # Posts the result of the deploy to #deploys. Best effort: a deploy never fails because of
+      # Slack (no secret, no answer, a bad status all end in a warning and exit 0).
+      - name: Notify Slack
+        if: always()
+        continue-on-error: true
+        env:
+          WEBHOOK: ${{ secrets.SLACK_DEPLOYS_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+          ENV_NAME: ${{ steps.env.outputs.env || 'unknown' }}
+          SERVICE: ${{ inputs.app || github.event.repository.name }}
+          AUTHOR: ${{ github.event.head_commit.author.name || github.actor }}
+          STARTED: ${{ steps.start.outputs.at }}
+        run: |
+          set +e -uo pipefail
+          if [ -z "$WEBHOOK" ]; then
+            echo "::warning title=No Slack message::SLACK_DEPLOYS_WEBHOOK_URL is not set, nothing is posted to #deploys"
+            exit 0
+          fi
+          case "$STATUS" in
+            success)   icon=':white_check_mark:'; result=success ;;
+            cancelled) icon=':no_entry_sign:';    result=cancelled ;;
+            *)         icon=':x:';                result=failed ;;
+          esac
+          now="$(date +%s)"
+          secs=$(( now - ${STARTED:-$now} ))
+          repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          run_url="$repo_url/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          payload="$(jq -nc --arg icon "$icon" --arg result "$result" --arg env "$ENV_NAME" \
+            --arg svc "$SERVICE" --arg sha "${GITHUB_SHA::7}" --arg commit "$repo_url/commit/$GITHUB_SHA" \
+            --arg run "$run_url" --arg author "$AUTHOR" --arg dur "$((secs / 60))m $((secs % 60))s" '
+            def esc: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
+            {
+              text: "\($svc) → \($env): \($result)",
+              blocks: [
+                {type: "section", text: {type: "mrkdwn",
+                  text: "\($icon) *\($svc | esc)* → *\($env)*: <\($run)|\($result)>"}},
+                {type: "section", fields: [
+                  {type: "mrkdwn", text: "*Commit*\n<\($commit)|`\($sha)`>"},
+                  {type: "mrkdwn", text: "*Author*\n\($author | esc)"},
+                  {type: "mrkdwn", text: "*Duration*\n\($dur)"},
+                  {type: "mrkdwn", text: "*Run*\n<\($run)|logs>"}
+                ]}
+              ]
+            }')" || { echo "::warning title=No Slack message::Could not build the message"; exit 0; }
+          code="$(curl -sS --max-time 10 -o /tmp/slack.out -w '%{http_code}' \
+            -H 'content-type: application/json' -d "$payload" "$WEBHOOK")"
+          if [ "$code" = 200 ]; then
+            echo "Posted to #deploys"
+          else
+            echo "::warning title=No Slack message::Slack answered HTTP $code: $(head -c 200 /tmp/slack.out 2> /dev/null)"
+          fi
+          exit 0
