@@ -21,8 +21,6 @@
 #
 # Variables (organization): GOOGLE_CLIENT_ID is a variable, not a secret, because the frontend bundle exposes it.
 # Secrets (organization): CLOUDFLARE_API_TOKEN (Pages: Edit; DNS: Edit on the zone), CLOUDFLARE_ACCOUNT_ID.
-# Optional organization secret SLACK_DEPLOYS_WEBHOOK_URL: the last step posts the result to #deploys.
-# Without it (or when Slack does not answer) the step only prints a warning.
 
 name: Deploy to Cloudflare Pages
 
@@ -227,8 +225,6 @@ jobs:
           echo "::error::https://$HOST does not serve this build after 15 minutes"
           exit 1
 
-      # Posts the result of the deploy to #deploys. Best effort: a deploy never fails because of
-      # Slack (no secret, no answer, a bad status all end in a warning and exit 0).
       - name: Notify Slack
         if: always()
         continue-on-error: true

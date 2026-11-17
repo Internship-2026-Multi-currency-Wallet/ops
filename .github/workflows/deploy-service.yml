@@ -17,8 +17,6 @@
 # like APP_ENV (staging, kvitka-uat, wisla-uat) → application named like the repository.
 #
 # Secrets (repository or organization): DOKPLOY_URL, DOKPLOY_TOKEN.
-# Optional organization secret SLACK_DEPLOYS_WEBHOOK_URL: the last step posts the result to #deploys.
-# Without it (or when Slack does not answer) the step only prints a warning.
 
 name: Deploy service
 
@@ -317,8 +315,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit 0
 
-      # Posts the result of the deploy to #deploys. Best effort: a deploy never fails because of
-      # Slack (no secret, no answer, a bad status all end in a warning and exit 0).
       - name: Notify Slack
         if: always()
         continue-on-error: true
