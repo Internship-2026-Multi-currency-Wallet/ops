@@ -296,6 +296,78 @@ metrics stack see [Logging and metrics](#logging-and-metrics).
   _Spam_ (Gmail → _Show original_ should say `SPF: PASS`, `DKIM: PASS`, `DMARC: PASS`). Resend → _Emails_ shows
   delivery status.
 
+## Google login setup
+
+"Sign in with Google" (feature E1-5) needs one Google OAuth client for the whole project. It uses the standard OAuth 2.0
+**authorization-code flow with a redirect**: client-web sends the user to Google, Google redirects back to client-web
+with a one-time `code`, client-web passes it to wallet-core, and wallet-core exchanges it for tokens with the Client ID
+and the **client secret**. So the client needs both _Authorized JavaScript origins_ and _Authorized redirect URIs_, and
+the secret is required (it stays in wallet-core).
+
+- **Where it lives**: Google Cloud project `Wallet Internship` (ID `wallet-internship-514612`) in the
+  [Google Cloud Console](https://console.cloud.google.com/). For now it is created from an intern's personal Google
+  account, without an organization, to learn the setup. It may move to another account later; the setup stays the same.
+- **Who has access** (_IAM & Admin → IAM_): the mentor is **Owner**, so the project does not depend on one person;
+  the interns get **Editor**. To get access, ask the mentor to add your Google account. Never share one login.
+- **OAuth consent screen** (_APIs & Services → OAuth consent screen_): user type _External_, app name
+  `Wallet Internship`, a support email (set on the consent screen), scopes only `openid`, `email`, `profile`
+  (non-sensitive, so no Google verification is needed). Publishing status: **Testing**, switching to _In production_
+  later.
+  - _Testing_ (now): Google limits sign-in to the listed test users (up to 100, each added by hand under _Test
+    users_). **Exception:** an app that requests only the basic scopes `openid`, `email`, `profile` is not restricted
+    to that list, so the list does not keep outsiders out. If sign-in must be limited to the team, enforce an
+    allowlist in wallet-core instead of relying on the publishing status. Still add the team's Google accounts as test
+    users, so nothing breaks if the scopes ever grow.
+  - _In production_ (later): the same access without the testing warning and without the 100-user list. Switch when
+    people outside the team test the UAT environments. Keep the scopes basic and do not upload a logo, otherwise
+    Google asks for app verification.
+- **OAuth client**: one client of type _Web application_ named `Wallet Web Client` (_APIs & Services → Credentials_).
+  Authorized JavaScript origins (exact origins: scheme + host + port, no path, no trailing slash) and, for the same
+  hosts, _Authorized redirect URIs_ (exact: origin + the callback path of client-web, `/auth/google/callback`):
+
+  | Where                              | Origin                                  | Redirect URI                     |
+  | ---------------------------------- | --------------------------------------- | -------------------------------- |
+  | `npm run dev` (client-web)         | `http://localhost:5173`                 | origin + `/auth/google/callback` |
+  | `npm run preview`                  | `http://localhost:4173`                 | origin + `/auth/google/callback` |
+  | client-web in the ops Docker stack | `http://localhost:8080`                 | origin + `/auth/google/callback` |
+  | staging                            | `https://staging.wallet.shatori.com`    | origin + `/auth/google/callback` |
+  | kvitka-uat                         | `https://kvitka-uat.wallet.shatori.com` | origin + `/auth/google/callback` |
+  | wisla-uat                          | `https://wisla-uat.wallet.shatori.com`  | origin + `/auth/google/callback` |
+
+  `/auth/google/callback` is the client-web route that receives `?code=...` after Google redirects back. The
+  back office has no Google login yet. If it gets one, add its hosts (`https://<env>-admin.wallet.shatori.com`, plus
+  its local ports) and its callback URIs the same way.
+
+- **Where the credentials are**:
+
+  | What          | Secret? | Where                                                                                                                     |
+  | ------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+  | Client ID     | no      | Shared password manager; GitHub organization **variable** `GOOGLE_CLIENT_ID` (client-web builds read it in CI)            |
+  | Client secret | **yes** | Shared password manager (source of truth); GitHub organization **secret** `GOOGLE_CLIENT_SECRET`; Dokploy → `wallet-core` |
+
+  The Client ID is public by design (it ends up in the browser bundle), so it is a variable. The secret is needed by
+  wallet-core only and must **never** reach client-web: Vite inlines every `VITE_*` value into the public bundle. A
+  GitHub secret cannot be read back after it is saved, so the password manager is where you get the values for local
+  work. Never commit them, never post them in Asana or chat.
+
+- **Configuration**:
+
+  | Variable                | Used by                 | Local                      | Deployed                                                                    |
+  | ----------------------- | ----------------------- | -------------------------- | --------------------------------------------------------------------------- |
+  | `VITE_GOOGLE_CLIENT_ID` | client-web (build time) | `.env.local` in client-web | set by `deploy-pages.yml` from the organization variable `GOOGLE_CLIENT_ID` |
+  | `GOOGLE_CLIENT_ID`      | wallet-core             | `.env` in wallet-core      | Dokploy → `wallet-core` → _Environment_ (staging, kvitka-uat, wisla-uat)    |
+  | `GOOGLE_CLIENT_SECRET`  | wallet-core             | `.env` in wallet-core      | the same                                                                    |
+
+  In the ops Docker stack put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` into `ops/.env`: compose passes the ID to
+  the client-web build and both values to wallet-core. Without them the app runs, just without Google login.
+
+- **Add the origin of a new environment**: open the OAuth client (_APIs & Services → Credentials_ → the client), add
+  the new origin under _Authorized JavaScript origins_ and its callback URL under _Authorized redirect URIs_, and save. Changes can take a few minutes to apply. Then add
+  the Dokploy variables for the new environment's `wallet-core` (ID and secret) and, if it is a new client-web host,
+  nothing else: the build takes the ID from the organization variable. A new local port works the same way.
+- **Rotate the secret**: _Credentials_ → the client → _Add secret_, update the password manager, the GitHub secret
+  and Dokploy (all environments), redeploy, then disable and delete the old secret.
+
 ## Logging and metrics
 
 ```
