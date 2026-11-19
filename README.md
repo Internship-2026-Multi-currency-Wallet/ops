@@ -246,6 +246,19 @@ Each app repository has a thin `.github/workflows/deploy.yml` (on push to `main`
 
 The backends apply their migrations on start (container command `npm run migrate && node dist/main.js`).
 
+#### Deploy notifications in Slack
+
+The last step of both reusable workflows (`Notify Slack`, `if: always()`) posts one message per deploy to the Slack
+channel `#deploys`: environment, service, short SHA (link to the commit), author, result (`success`, `failed` or
+`cancelled`, link to the run) and duration. The message comes from the Slack app _Wallet CI_ through its incoming
+webhook; the URL is the organization secret `SLACK_DEPLOYS_WEBHOOK_URL` (never in Git, Asana or chat messages), and the
+callers pass it with `secrets: inherit`.
+
+A deploy never fails because of Slack: if the secret is missing or Slack does not answer with HTTP 200, the step only
+prints a warning (visible in the run annotations) and the job result is not affected. The URL is read from the
+environment and never printed. To change the channel or rotate the URL: _api.slack.com/apps → Wallet CI → Incoming
+Webhooks_ (revoke the old URL, add a new one) and update the organization secret.
+
 ### Redeploy
 
 - Same commit again: _Actions → Deploy → Run workflow_ on the branch of the environment (or re-run the last run).
@@ -262,7 +275,7 @@ The backends apply their migrations on start (container command `npm run migrate
 | MySQL                  | One instance, databases `<env>_<service>` (e.g. `staging_wallet_core`); one user per environment (`staging`, `kvitka_uat`, `wisla_uat`) with access to its own databases only. Passwords: Dokploy → `mysql` (root/staging) and its _Environment_ (`KVITKA_UAT_DB_PASSWORD`, `WISLA_UAT_DB_PASSWORD`) |
 | Redis                  | One instance; environments isolated by the `APP_ENV` key/channel prefix. Password: Dokploy → `redis`                                                                                                                                                                                                 |
 | PayGate secrets        | Dokploy → `paygate` → _Environment_: `PAYGATE_ADMIN_PASSWORD`, `PAYGATE_MERCHANT_<ID>_API_KEY` / `_WEBHOOK_SECRET` (ids `STAGING`, `KVITKA_UAT`, `WISLA_UAT`); config file mount `/etc/paygate/config.toml`, volume `paygate-data`                                                                   |
-| GitHub secrets         | Repository secrets `DOKPLOY_URL`, `DOKPLOY_TOKEN` (backends, paygate); organization secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (frontends, ops)                                                                                                                                         |
+| GitHub secrets         | Repository secrets `DOKPLOY_URL`, `DOKPLOY_TOKEN` (backends, paygate); organization secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (frontends, ops), `SLACK_DEPLOYS_WEBHOOK_URL` (all deploys, optional: Slack app _Wallet CI_ → `#deploys`)                                                                                                                                         |
 
 Memory limits: backends 256 MB (`--max-old-space-size=192`), MySQL 512 MB, Redis 256 MB (reservation 64 MB), PayGate
 64 MB; logging and
