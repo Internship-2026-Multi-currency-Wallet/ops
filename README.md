@@ -534,41 +534,21 @@ What the panels show locally:
 5. A new dashboard also needs a `configs:` entry in `logging/docker-compose.yml` (see `grafana-dashboard-server`).
 6. Open a PR; merging it deploys the dashboard.
 
-## PR review (PR-Agent)
+## PR review
 
-Every pull request in the organization gets an AI review from [PR-Agent](https://github.com/The-PR-Agent/pr-agent)
-(model `gpt-6.1-sol`, OpenAI API). It is advice, not a gate: the human approvals stay required.
+Pull requests in the organization get an AI review from [Open Code Review](https://github.com/alibaba/open-code-review)
+through the GitHub App _igor-ocr-review_. The review service is maintained outside this repository. It is advice,
+not a gate: the human approvals stay required.
 
-- **When**: PR opened, reopened or marked _Ready for review_ → `/describe` (title/summary) + `/review`; every push to
-  the PR branch → `/review` again. Draft PRs are skipped. On demand, comment `/review`, `/describe`, `/improve` or
-  `/ask "<question>"` on a PR.
-- **Runs**: the Dokploy Compose service `pr-agent` (environment `shared`) from
-  [`pr-agent/docker-compose.yml`](pr-agent/docker-compose.yml) — source GitHub (`ops`, `main`), auto deploy, watch path
-  `pr-agent/**`. Webhook `https://pr-agent.wallet.shatori.com/api/v1/github_webhooks`. Memory limit 640 MB. The image
-  is built on deploy from [`pr-agent/Dockerfile`](pr-agent/Dockerfile): the upstream image plus one patch (below).
-- **GitHub App** _PR-Agent_ (organization settings → GitHub Apps), installed on all repositories. Permissions: Pull
-  requests R/W, Issues R/W, Contents R, Metadata R. Events: Pull request, Issue comment, Pull request review comment.
-- **Secrets**: Dokploy → `pr-agent` → _Environment_: `PR_AGENT_GITHUB_APP_ID`, `PR_AGENT_GITHUB_WEBHOOK_SECRET`,
-  `PR_AGENT_GITHUB_PRIVATE_KEY_B64` (the app's `.pem`, base64 in one line), `PR_AGENT_OPENAI_KEY`.
-- **Review prompt**: `PR_REVIEWER__EXTRA_INSTRUCTIONS` in the compose file — appended to PR-Agent's built-in prompt
-  (critical stance, project context, risks to check, comment discipline, severity + fix per finding). One review
-  summary per PR, updated on every push, plus each finding as an inline comment on its line; up to 7 findings.
-- **Test files are not reviewed**: `IGNORE__GLOB` drops `*.spec.*`, `*.e2e-spec.*` and `*.test.*` (in any directory)
-  from the diff for every command, and the "does the PR include tests" check is off, since it would see no tests.
-- **Is it running?** Automatic runs show up in the PR checks as _PR Agent - Review_ / _PR Agent - Describe_:
-  _in progress_ while working, then done. The review summary is one PR comment, _PR Reviewer Guide_, updated on every
-  push (with run details: model, tokens, time, cost); the findings are inline comments in the diff. Commands typed in a comment get 👀 when picked
-  up, then 🚀 (success) or 😕 (failure). Needs the App permission _Checks: read & write_.
-- **No repeated findings**: the review comment keeps every finding in a hidden marker, and the next `/review` gets
-  them in its prompt: a finding that still applies is repeated word for word, so its inline comment is recognised as
-  already posted (`CONFIG__PERSISTENT_INLINE_COMMENTS`) instead of being posted again in new words. To close a finding
-  you will not fix, reply with the reason and _Resolve conversation_: later reviews do not raise it again. Upstream
-  PR-Agent turns this memory off when results go to check runs; [`patch-review-memory.py`](pr-agent/patch-review-memory.py)
-  keeps it on (the check run still shows progress), and the image build fails if a PR-Agent upgrade breaks the patch.
-- **Per-repository settings**: a `.pr_agent.toml` in the repository root (default branch) overrides the defaults from
-  the compose file. `[pr_reviewer] extra_instructions` there **replaces** the shared prompt, so copy it and extend.
-- **Cost**: roughly $0.05–0.30 per run, paid from the OpenAI API balance; keep a monthly budget limit on the OpenAI
-  project.
+- **When**: PR opened, reopened, marked _Ready for review_, or pushed to. Draft PRs are skipped. Comment `/review`
+  to run it again.
+- **What**: one summary comment, updated on every run, plus inline comments on the changed lines (only new ones on
+  later pushes). The check _Open Code Review_ shows progress.
+- **Earlier findings**: each review is given the findings of the earlier reviews of the same PR and the replies to
+  them. To close a finding you will not fix, reply with the reason and _Resolve conversation_: later reviews do not
+  raise it again.
+- **Per-repository rules**: `.opencodereview/rule.json` in the repository
+  ([format](https://open-codereview.ai/docs/review-rules)).
 
 ## Not here yet
 
