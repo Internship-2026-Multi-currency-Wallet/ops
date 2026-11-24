@@ -544,9 +544,9 @@ not a gate: the human approvals stay required.
   to run it again.
 - **What**: one summary comment, updated on every run, plus inline comments on the changed lines (only new ones on
   later pushes). The check _Open Code Review_ shows progress.
-- **Earlier findings**: each review is given the findings of the earlier reviews of the same PR and the replies to
-  them. To close a finding you will not fix, reply with the reason and _Resolve conversation_: later reviews do not
-  raise it again.
+- **Earlier findings**: each review is given the earlier findings on the same PR, the replies to them and the PR
+  conversation. Reply to a finding to settle it: "Fixed in …" marks it fixed, any other reason ("Not changing,
+  because …") closes it, and later reviews do not raise it again.
 - **Per-repository rules**: `.opencodereview/rule.json` in the repository
   ([format](https://open-codereview.ai/docs/review-rules)).
 
